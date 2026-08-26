@@ -18,25 +18,8 @@ _(none open — everything folded into plan.md)_
 
 ## 🔴 Vulnerabilities
 
-_2026-08-25 security review of plan.md found 15 gaps in the §7.6 threat model — **ALL FIXED same
-day** by folding mitigations into [`docs/plan.md`](./plan.md) (specs F2/F3/F5, hardening
-#1/#2/#6/#12–14, threat-table rows #19–26, §2 stack, §4 schema/indexes, §5 scripts, §7.5, §10 tests).
-Resolution map:_
+_2026-08-25 security review of plan.md found 15 gaps in the §7.6 threat model — **all fixed same
+day** in [`docs/plan.md`](./plan.md) (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat-table
+rows #19–26, §4 schema/indexes, §7.5, §10 tests). Details live in the plan; nothing open here._
 
-- ✅ Analytics ingest now carries a kind-scoped `analytics` key (POST body — sendBeacon can't set headers) — F5 + hardening #12 + row 19
-- ✅ SDK download moved to header auth (`x-manager-key`), `no-store`, no `ACAO *`, never `?token=` — F2 + row 20
-- ✅ CSV formula-injection sanitizer specced (`= + - @` tab CR → `'` prefix) — F2 + hardening #13 + row 21
-- ✅ Server-set fields (`source/ip/country/hostname/pid/…`) rejected from payloads; key-`kind` gating; ip derived server-side — §4 `api_keys.kind` + hardening #1/#2 + row 22
-- ✅ Visitor ID switched to HMAC-SHA256 keyed with secret `VISITOR_PEPPER` env var — F5 + row 23 (+ architecture.md env table)
-- ✅ Stateless-session revocation wording corrected (rotation = only true kill-switch; logout = browser-only) — §7.5 + row 5
-- ✅ Global login lockout removed (per-IP + per-account only, no owner-lockout DoS) — row 4
-- ✅ Unique `(key, windowStart)` index on `rate_limits` (upsert-race under-count fix) — §4 + hardening #11
-- ✅ Secrets: per-row `keyVer` + mandatory fresh random 12-byte GCM IVs (crash-safe rotation) — §4/F3 + row 25
-- ✅ `create-user.js` now env/prompt-driven (no hardcoded creds); `.gitignore` before first commit mandated — §5/§7.5/Security Notes
-- ✅ Explicit `Cache-Control: no-store` on all authed GETs (reveal/export/dashboard/sdk) — Security Notes + row 24
-- ✅ ua-parser-js exact-version pinning (2021 hijack precedent) — §2 stack + row 26
-- ✅ User search input escaped before `$regex` (ReDoS/full-scan guard) — F2 filters
-- ✅ PII minimization: click-text truncation ~100 chars; ip/country retention caveats noted — F5
-- ✅ CSPRNG-only key material requirement (`crypto.randomBytes` ≥ 256-bit) — hardening #14
-
-_(none open — re-review whenever plan.md gains new features)_
+_(none open)_
