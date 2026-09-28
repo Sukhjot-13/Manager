@@ -1,58 +1,70 @@
 # Suggestions Log
 
-> State 2026-08-25: all design-level suggestions were folded into [`docs/plan.md`](./plan.md)
-> (testing §10, RBAC/admin-bypass §7.5, security §7/§7.6, guardrails §8, specs F2–F5) — the
-> plan owns them now. This file tracks **open/parked items only**. The five 🟡 features below
-> are wanted **later** (post-v1), not declined.
+> Design-level items folded into [`docs/plan.md`](./plan.md) stay there. This file tracks
+> **open/parked items only**, plus the closed security/audit log.
 
 ## 🟢 Improvements
-- 2026-09-28 — **`npm` vs `pnpm` drift (doc/spec mismatch).** `plan.md` §2/§5/§10 and §7.6 #10/#26
-  assume pnpm workspaces, `pnpm.lock` and `pnpm test`, but the repo is npm (`package-lock.json`,
-  `npm test`). Pick one and align the spec — npm needs no change; pnpm means converting the
-  lockfile and scripts.
-- 2026-09-28 — **Spec layout says `src/`, the scaffold uses root-level `app/`.** `plan.md` §5
-  (`src/app/...`, `src/lib/...`) doesn't match `app/` + `lib/`. Code was added at `lib/csp.ts`
-  to follow the *scaffold's* convention; update the plan (or move to `src/`) before P1 spreads
-  the tree.
-- 2026-09-28 — Unused placeholder SVGs (`public/next.svg`, `vercel.svg`, `file.svg`, `globe.svg`,
-  `window.svg`) are dead weight now that the boilerplate landing page is gone — delete during P1 polish.
-- 2026-09-28 — Consider `next/image` `remotePatterns` + relaxing `img-src` in `lib/csp.ts` when
-  GitHub enrichment avatars land (P1); today `img-src 'self' blob: data:` is deliberate.
-- 2026-09-28 — Add a GitHub Actions workflow running `npm run verify` + `npm audit --audit-level=high`
-  so the audit findings fixed here can't silently return.
+- 2026-09-28 — **Add CI**: a GitHub Actions workflow running `npm run verify` (lint + tsc +
+  tests + build) and `npm audit --audit-level=high`, plus `npm run test:e2e` on a schedule, so
+  the classes of bug fixed on 2026-09-28 (see `to-do.md`) can't silently return.
+- 2026-09-28 — **`npm` vs `pnpm` drift**: `plan.md` §2/§5/§10 and §7.6 #10/#26 assume pnpm
+  workspaces and `pnpm.lock`; the repo uses npm. The spec should be corrected (or convert the
+  lockfile) so the docs stop lying.
+- 2026-09-28 — **Spec layout says `src/`**, the app uses root-level `app/` + `lib/`. Update
+  `plan.md` §5 to match reality.
+- 2026-09-28 — **Saved log filters per browser** were dropped from the log viewer because reading
+  `localStorage` during render trips `react-hooks/purity`. Implement with an effect + state
+  hydration (or `useSyncExternalStore`) to restore it.
+- 2026-09-28 — **Per-dimension cardinality on `daily_stats`**: now capped at 200 keys per
+  dimension per day (overflow → `__other__`). A long-term option is dropping dimensions older
+  than N days or moving them to their own collection if a spammer keeps inflating them.
+- 2026-09-28 — Delete the unused placeholder SVGs (`public/next.svg`, `vercel.svg`, `file.svg`,
+  `globe.svg`, `window.svg`) now that the boilerplate landing page is gone.
+- 2026-09-28 — Consider an `app/error.tsx` + `app/not-found.tsx` with branded styling; both are
+  currently framework defaults.
+- 2026-09-28 — Server-side rendering of the log viewer's first page (currently client-fetched
+  after mount) would make deep links shareable and improve perceived speed.
 
 ## 🟡 New Features
-- 2026-08-25 — Reports shared manually for now (JSON/CSV download + printable report page → browser PDF); "Send to…" email-report button (Resend) parked for later, possibly separate script/app. *(wanted later — parked post-v1 in plan)*
+- 2026-08-25 — Reports shared manually for now (JSON/CSV download + printable report page → browser PDF); "Send to…" email-report button (Resend) parked for later, possibly separate script/app.
 - 2026-08-25 — Error-spike alerts to Discord/Telegram webhook (post-v1).
-- 2026-08-25 — Uptime monitoring via external free pinger hitting `/api/ping/[id]` (Vercel Hobby cron is daily-only).
+- 2026-08-25 — Uptime monitoring via external free pinger hitting `/api/ping` (Vercel Hobby cron is daily-only).
 - 2026-08-25 — Weekly digest email (Resend free tier) summarizing all projects.
 - 2026-08-25 — Deployment tracker receiving Vercel/GitHub deploy webhooks.
+- 2026-09-28 — Alerting on secret reveals: a daily/weekly digest of vault `secret_audit` rows so
+  an unexpected reveal pattern is noticed even if nobody is looking at the UI.
+- 2026-09-28 — SDK version pinning per project (store the served SDK version on the key so an app
+  can tell whether it is running an old vendored copy) — the tracker already versions via `?v=`.
 
 ## 🔴 Vulnerabilities
 
-_2026-08-25 security review of plan.md found 15 gaps in the §7.6 threat model — **all fixed same
-day** in [`docs/plan.md`](./plan.md) (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat-table
-rows #19–26, §4 schema/indexes, §7.5, §10 tests). Details live in the plan; nothing open here._
+_2026-08-25 security review of plan.md found 15 gaps in the §7.6 threat model — all fixed in the
+plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 indexes, §7.5, §10)._
 
-### Closed — full-codebase audit 2026-09-28
+### Closed — scaffold audit 2026-09-28
+- **High** — 2 high-severity transitive advisories (`js-yaml`, `sharp`) → fixed, `npm audit` clean.
+- **High** — no CSP anywhere → per-request nonce CSP (`proxy.ts` + `lib/csp.ts`).
+- **High** — CSP would have blocked its own hydration on statically prerendered pages → all
+  routes dynamic + regression test.
+- **Medium** — no clickjacking/transport hardening, `X-Powered-By` advertised → full header set.
+- **Medium** — indexable private admin app → `noindex, nofollow, nocache`.
+- **Low** — Geist fonts loaded but overridden by an `Arial` body rule.
 
-- **High — vulnerable transitive dependencies.** `npm audit` reported 2 high advisories
-  (`js-yaml` <4.3.2 merge-key CPU DoS via eslint, `sharp` <0.35.4 libheif CVEs via Next).
-  Fixed with `npm audit fix`; `npm audit` now reports **0 vulnerabilities**. Lockfile updated.
-- **High — no CSP anywhere** (plan §7 line 301 required it; §7.6 #6 depends on it). A stored-XSS
-  path in the log viewer/notes/vault would have had no second line of defence. Fixed with a
-  per-request nonce CSP (`proxy.ts` + `lib/csp.ts`): no `'unsafe-inline'` in `script-src`,
-  `object-src`/`frame-src 'none'`, `frame-ancestors 'none'`.
-- **High — CSP would have broken the app's own hydration** (found while verifying the fix above).
-  `/` was statically prerendered, so its inline hydration scripts had no nonce and would be
-  blocked by the strict policy. Fixed with `force-dynamic` + a regression test.
-- **Medium — no clickjacking/transport hardening.** `X-Powered-By: Next.js` was being advertised
-  and none of `X-Frame-Options`, `nosniff`, HSTS, COOP/CORP, `Permissions-Policy` were set —
-  directly relevant to the future secrets-vault reveal button. All added in `next.config.ts`.
-- **Medium — indexable private app.** No `robots` meta meant search engines could index an admin
-  control center. Now `noindex, nofollow, nocache`.
-- **Low — fonts silently unused.** `app/globals.css` set `font-family: Arial` over the Geist vars,
-  so two downloaded font families were dead weight (perf + a false sense of theming).
+### Closed — full-build audit 2026-09-28
+- **High** — `verifyApiKey` rejected ~4.4% of generated keys (prefix shape check broke on
+  base64url), silently breaking integration for those projects.
+- **High** — `daily_stats` map fields rejected `.`/`$` keys, so any external referrer could throw
+  and take the analytics dashboard down; also unbounded cardinality.
+- **High** — tracker served at the wrong path (`/api/t.js` vs the advertised `/t.js`): every
+  embed snippet would have 404'd.
+- **High** — delegated permission management was unreachable dead code (rank gate), and rank
+  validity was never checked, so a malformed rank still granted access.
+- **Medium** — `x-vercel-ip-country` trusted verbatim (client-settable off-Vercel) → 2-letter
+  validation at the source.
+- **Medium** — root admin could not manage other admins; self/last-admin protections fired after
+  scope assertions and returned misleading codes.
+- **Low** — `lib/validation.ts` imported an enum from the wrong module (crash at import),
+  `proxy.ts` mutated immutable redirect headers (throw on unauthenticated page loads),
+  `/settings/keys` guarded by the wrong permission, duplicate mongoose index declarations.
 
 _(none open)_
-

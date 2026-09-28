@@ -3,7 +3,7 @@
 > One web app to manage all my projects: registry, centralized logging, secrets vault,
 > GitHub links, and analytics.
 >
-> Status: **PLAN** (nothing built yet)
+> Status: **BUILT** — P0–P5 implemented (2026-09-28). Verification: `npm run verify` + `npm run test:e2e`.
 > Created: 2026-08-25
 
 ---
@@ -280,12 +280,12 @@ Monorepo via **pnpm workspaces** so the SDK version-controls alongside the app.
 
 ## 6. Build Phases
 
-- [ ] **P0 — Skeleton**: scaffold Next.js + Tailwind + shadcn, Mongo connection, simple admin login (env creds + signed cookie + middleware guard), `/api/ping` health route, dashboard shell/nav
-- [ ] **P1 — Projects Hub**: project CRUD, links, statuses, tags, search, notes
-- [ ] **P2 — Secrets Vault**: encrypt/decrypt, masked list, eye reveal + audit, .env import/export, environments
-- [ ] **P3 — Logger**: API keys mgmt, hardened ingest API, full SDK (levels, child loggers, timers, batching/retry/offline queue, auto-capture, trace correlation, redaction, fingerprinting), log viewer with All/Server/Client tabs + trace view + error grouping + live tail + exports, per-project "Integrate" page with copy-paste install command (tokenized `logger.ts` download)
-- [ ] **P4 — Analytics**: tracker script, event ingest, daily rollup job (on-read lazy aggregation), dashboard charts
-- [ ] **P5 — Polish/later**: multi-user roles UI, GitHub activity feed
+- [x] **P0 — Skeleton**: scaffold Next.js + Tailwind + shadcn, Mongo connection, simple admin login (env creds + signed cookie + middleware guard), `/api/ping` health route, dashboard shell/nav
+- [x] **P1 — Projects Hub**: project CRUD, links, statuses, tags, search, notes
+- [x] **P2 — Secrets Vault**: encrypt/decrypt, masked list, eye reveal + audit, .env import/export, environments
+- [x] **P3 — Logger**: API keys mgmt, hardened ingest API, full SDK (levels, child loggers, timers, batching/retry/offline queue, auto-capture, trace correlation, redaction, fingerprinting), log viewer with All/Server/Client tabs + trace view + error grouping + live tail + exports, per-project "Integrate" page with copy-paste install command (tokenized `logger.ts` download)
+- [x] **P4 — Analytics**: tracker script, event ingest, daily rollup job (on-read lazy aggregation), dashboard charts
+- [x] **P5 — Polish/later**: multi-user roles UI, GitHub activity feed
 
 Each phase ships usable software; order chosen so P3/P4 (data producers) come after P1 (they attach to projects).
 

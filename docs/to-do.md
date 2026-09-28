@@ -1,46 +1,65 @@
 # To-Do
 
-> Session handoff. Newest first. Product phases live in [`plan.md`](./plan.md) §6.
+> Session handoff. Newest first. Product phases live in [`plan.md`](./plan.md) §6 (all complete).
+> Inventory: [`architecture.md`](./architecture.md) · open ideas: [`suggestions.md`](./suggestions.md)
 
-## 2026-09-28 — Full audit + hardening of the P0 skeleton
+## 2026-09-28 — Full build P0 → P5 + hardening
 
-**Verified working:** `npm run lint`, `npm run typecheck` (`tsc --noEmit`), `npm test` (19 tests),
-`npm run build`, `npm audit` (0 vulnerabilities), and a live production-server check of headers,
-nonce propagation, and a real-Chromium CSP run (no violations).
+**Verification:** `npm run verify` → lint clean, `tsc --noEmit` clean, **329 tests green**,
+production build clean. `npm run test:e2e` → **57/57 checks** against a real production server
+backed by a real MongoDB (login, projects, keys, log ingest, viewer, trace view, CSV export,
+vault reveal + audit, analytics ingest + rollups, tracker, SDK download, kill switches, users,
+role isolation, logout).
 
-**Fixed in this pass**
+### Shipped
 
-1. `npm audit` — 2 high-severity transitive advisories (`js-yaml`, `sharp`) → `npm audit fix`; bumped
-   `@types/node` to `^24` (Node 24 runtime) so Vitest 5 resolves.
-2. No security headers at all (plan §7 required them): `next.config.ts` now sets
-   `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP,
-   `X-DNS-Prefetch-Control`, HSTS; `poweredByHeader: false`, `reactStrictMode: true`.
-3. No CSP anywhere → nonce-based CSP via `proxy.ts` + `lib/csp.ts` (per-request nonce,
-   `'strict-dynamic'`, no `'unsafe-inline'` script source in production).
-4. **Latent breakage found while verifying #3:** `/` was statically prerendered, so its inline
-   hydration scripts carried no nonce and would have been CSP-blocked in a browser. Fixed with
-   `export const dynamic = "force-dynamic"` and locked in by `tests/unit/page-rendering.test.ts`.
-5. `app/globals.css` forced `font-family: Arial` over the Geist vars — both `next/font` faces were
-   downloaded and never used. Now reads `var(--font-geist-sans)` / `var(--font-geist-mono)`.
-6. `robots` meta was absent — a private admin app is now `noindex, nofollow, nocache`.
-7. `app/page.tsx` still shipped the create-next-app boilerplate (Next.js logo, "Deploy Now" links,
-   UTM-tagged outbound URLs) → replaced with a Manager status page, no external links.
-8. `README.md` was upstream boilerplate → real setup/scripts/security docs.
-9. No tests at all → Vitest + single runner `npm test` (plus `typecheck` and `verify` scripts).
+- **Foundation** — env access (fail closed), cached mongoose connection, models + indexes from
+  plan §4, AES-256-GCM crypto, `jose` sessions, centralized permission system, rate limiting
+  (memory + durable), settings store, audit log.
+- **P0** — login with generic errors + per-IP/per-account lockout, `proxy.ts` session guard with
+  CSP, cookie policy, dashboard shell, `/api/ping`, `scripts/create-user.ts`.
+- **P1** — projects CRUD, statuses, tags, emoji/colour, links, markdown notes, search/filter,
+  grid+table views, GitHub enrichment with refresh.
+- **P2** — vault: per project+environment encryption, masked lists, 30 s reveal + copy, audited
+  reveal/copy/export/import, `.env` import/export behind confirm + password, resumable master-key
+  rotation.
+- **P3** — API keys (shown once), hardened log ingest (all 14 hardening rules), full viewer
+  (All/Server/Client, filters, trace view, error grouping, live tail, detail drawer, CSV/JSON
+  export), Integrate page, zero-dependency isomorphic SDK + key-gated single-file download.
+- **P4** — public `t.js` tracker (SPA-aware pageviews, click maps, custom events, UTM, batching,
+  `sendBeacon`), kind-scoped event ingest, lazy daily rollups, analytics dashboards + overview.
+- **P5** — users & roles UI (roles, per-user overrides, delegated permission managers with rank
+  boundary + permission ceiling), global settings, GitHub enrichment.
 
-**Remaining P0 work (plan §6, none of it started)**
+### Real bugs found and fixed during the build (all now regression-tested)
 
-- [ ] Mongo connection module `lib/db/*` (mongoose, connection cached on `globalThis`) + indexes from plan §4
-- [ ] `lib/crypto.ts` AES-256-GCM helper (fresh 12-byte IV per write, `keyVer`, tamper detection) — needed by P2
-- [ ] `lib/permissions.ts` access-level map + `can()` (plan §7.5) with admin bypass, wired into `proxy.ts` and every API route
-- [ ] `lib/ratelimit.ts` in-memory token bucket (durable Mongo counters come with ingest, P3)
-- [ ] `POST /api/auth/login` (env creds, `crypto.timingSafeEqual`, per-IP + per-account attempt
-      counters, 5 fails → 15 min lockout, generic errors) + logout route
-- [ ] Session cookie: `jose`-signed, HttpOnly + Secure + SameSite=Lax, 7-day expiry, read by `proxy.ts`
-- [ ] `(auth)/login` page and `(dash)/` shell + nav
-- [ ] `tests/integration/` suite: login + proxy gating, `Cache-Control: no-store` on authed GETs
-- [ ] `scripts/create-user.js` (env/prompt only, never hardcoded creds)
-- [ ] Dependency decision: repo uses **npm**, but `plan.md` §7.6 #10/#26 and §10 assume **pnpm**
-      workspaces + `pnpm.lock` + `pnpm test` — reconcile the spec with reality (see `suggestions.md`)
+1. `verifyApiKey` rejected ~4.4% of every key it generated (`prefix.split("_")` broke on
+   base64url `_`) — replaced with a `/^(mlk|mck|mak)_/` shape check.
+2. `daily_stats` used mongoose `Map` fields, which **reject `.` and `$` keys** — every external
+   referrer (`https://google.com`), dotted path or classed click target would 500 the analytics
+   dashboard. Dimensions are now plain objects, plus a 200-key-per-dimension cap.
+3. The tracker was served at `/api/t.js` while every embed snippet pointed at `/t.js` (404).
+   Added the root route (shared handler) + regression test.
+4. Delegated permission management was dead code: `permissions.manage` had an ADMIN-only rank so
+   `assertCanManageTarget` always threw. Now granted by an active management scope.
+5. `can()` ignored rank validity — a `NaN`/mismatched rank still granted access. Now fails closed.
+6. Root admin could not manage other admins (the protected-target check blocked everyone).
+7. `assertCanManageTarget` reported "rank boundary" when the real problem was self-management.
+8. `lib/validation.ts` imported `ENVIRONMENTS` from the wrong module — crashed at import time.
+9. `proxy.ts` used `Response.redirect` headers (immutable) → threw on unauthenticated page loads.
+10. `/settings/keys` was blocked by the `settings.manage` proxy guard despite needing `keys.view`.
+11. `x-vercel-ip-country` was trusted verbatim; now validated to a 2-letter code.
+12. Self-disable/self-delete and last-admin protections fired after the scope assertions, so they
+    returned the wrong (less accurate) error codes.
+13. Duplicate mongoose index declarations on `logs.ts` / `events.ts` / `secret_audit.ts`.
+14. `globals.css` forced Arial over the Geist fonts, and a `color-scheme` rule overrode itself.
 
-**Verification command for any future change:** `npm run verify`
+### You must do these two things (they need your accounts, not the code)
+
+- [ ] Create the free **MongoDB Atlas M0** cluster, allow your Vercel IPs (or `0.0.0.0/0` for
+      Atlas) and put the URI in `MONGODB_URI` in `.env.local` **and** in Vercel env vars.
+- [ ] Generate `AUTH_SECRET`, `ENV_MASTER_KEY`, `VISITOR_PEPPER` (commands in `README.md`), set
+      `ADMIN_EMAIL`/`ADMIN_PASSWORD`, deploy to Vercel, and **back up `ENV_MASTER_KEY` offline**.
+
+Optional follow-ups are in [`suggestions.md`](./suggestions.md) (saved log filters, cap on
+`daily_stats` growth, CI workflow, npm-vs-pnpm spec drift, unused placeholder SVGs).
