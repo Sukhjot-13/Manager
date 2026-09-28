@@ -8,6 +8,7 @@ export async function GET() {
       ok: readiness.setup === "ready",
       setup: readiness.setup,
       database: readiness.database.ok ? "connected" : readiness.database.error,
+      databaseKind: readiness.database.kind,
       missingEnv: readiness.env.missing,
     },
     { headers: { "Cache-Control": "no-store" } },

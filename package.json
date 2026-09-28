@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local-db": "node scripts/dev-local-db.mjs dev",
+    "dev:local-db:fresh": "node scripts/dev-local-db.mjs dev --fresh",
+    "start:local-db": "MANAGER_ALLOW_LOCAL_DB=1 node scripts/dev-local-db.mjs start",
     "build": "npm run build:logger && next build",
     "build:logger": "node packages/logger/build.mjs",
     "start": "next start",
@@ -13,7 +16,8 @@
     "test:watch": "vitest",
     "test:e2e": "node tests/e2e/smoke.mjs",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
-    "create-user": "tsx scripts/create-user.ts"
+    "create-user": "tsx scripts/create-user.ts",
+    "provision:projects": "tsx scripts/provision-projects.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

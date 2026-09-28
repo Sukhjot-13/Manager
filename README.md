@@ -22,6 +22,22 @@ npm run create-user            # optional: add developer/user accounts
 npm run dev                    # http://localhost:3000
 ```
 
+**Production = MongoDB Atlas.** The app has no in-repo database: without a reachable
+`MONGODB_URI` it fails closed and `/login` tells you exactly what is missing.
+
+**Local development without Atlas (testing only).** A real MongoDB is booted from
+`mongodb-memory-server`, stored on disk in `.data/mongo/db` so data survives restarts:
+
+```bash
+npm run dev:local-db           # local MongoDB + next dev  (port 27099)
+npm run dev:local-db:fresh     # same, but wipes the local data first
+npm run provision:projects     # create projects + keys -> .manager-keys.local.json
+```
+
+`.data/` and `.manager-keys.local.json` are git-ignored, `/login` shows a "local database"
+warning, and the helper refuses to run on Vercel. `npm run dev` / `npm start` are unaffected
+and still require a real `MONGODB_URI`.
+
 Generate the secrets instead of typing them:
 
 ```bash

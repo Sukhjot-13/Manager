@@ -60,7 +60,7 @@
 | `lib/github.ts` | Repo enrichment with 1h cache | `parseRepoSlug`, `fetchRepoInfo`, `refreshProjectGithub`, type `GithubRepoInfo` |
 | `lib/tracker.ts` | Analytics tracker source + embed snippet | `TRACKER_SOURCE`, `TRACKER_VERSION`, `TRACKER_PATH`, `getEmbedSnippet`, `MASKED_KEY_TAIL`, types `EmbedSnippet`/`EmbedSnippetProject` |
 | `lib/trackerHandler.ts` | Shared `/t.js` response (immutable cache + ETag/304) | `trackerResponse`, `trackerHeaders`, `TRACKER_ETAG` |
-| `lib/readiness.ts` | First-run diagnostics: which env vars are missing, is the database reachable, and what to tell the user | `checkReadiness`, `missingEnvVars`, `setupHint`, type `ReadinessReport` |
+| `lib/readiness.ts` | First-run diagnostics: which env vars are missing, is the database reachable, whether it is Atlas or a local instance, and what to tell the user | `checkReadiness`, `missingEnvVars`, `setupHint`, `databaseKind`, types `ReadinessReport`/`DatabaseKind` |
 | `lib/cn.ts` | Class-name helper | `cn` |
 
 ## API Routes
@@ -69,7 +69,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 
 | Route | Methods | Permission | Notes |
 |---|---|---|---|
-| `app/api/ping/route.ts` | `GET` | public | readiness probe: `{ ok, setup, database, missingEnv }`, `no-store` — never echoes a value |
+| `app/api/ping/route.ts` | `GET` | public | readiness probe: `{ ok, setup, database, databaseKind, missingEnv }`, `no-store` — never echoes a value |
 | `app/api/auth/login/route.ts` | `POST` | public | readiness-gated (503 + missing names when unconfigured), env/bcrypt login, generic errors, 429 + `Retry-After` on lockout, sets the session cookie |
 | `app/api/auth/logout/route.ts` | `POST` | public | clears the cookie (`Max-Age=0`) |
 | `app/api/auth/session` | — | session | answered inside `proxy.ts` (principal + capabilities) |
@@ -105,7 +105,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/layout.tsx` | Fonts, global CSS, private-app metadata (`noindex`) | `metadata`, `RootLayout` |
 | `app/page.tsx` | Public landing (feature summary, sign-in or dashboard link) | `Home` |
 | `app/globals.css` | Tailwind v4 theme, Geist font vars, `color-scheme` | _(styles)_ |
-| `app/(auth)/login/page.tsx` + `login-form.tsx` | Sign-in form with lockout messaging; shows an actionable setup notice instead of the form when env/DB are not ready | `LoginPage`, `LoginForm` |
+| `app/(auth)/login/page.tsx` + `login-form.tsx` | Sign-in form with lockout messaging; shows an actionable setup notice instead of the form when env/DB are not ready, and warns when connected to a **local** database | `LoginPage`, `LoginForm` |
 | `app/(dash)/layout.tsx` | Authenticated shell: sidebar nav, `CapabilityProvider`, `ToastProvider` | `DashLayout` |
 | `app/(dash)/dashboard/page.tsx` | Overview: project cards, key/user counts, ingest state, live API ping | `DashboardPage` |
 | `app/(dash)/projects/page.tsx` + `components/projects/project-list.tsx` | Search, status filter, grid/table, create dialog, delete confirmation | `ProjectsPage`, `ProjectList` |
@@ -165,6 +165,8 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/e2e/smoke.mjs` | Builds and boots a real production server against a real MongoDB; 57 checks across the whole product (`npm run test:e2e`) |
 | `vitest.config.mts` | Vitest config (`@/` alias, node env, `tests/**/*.test.ts`) |
 | `scripts/create-user.ts` | CLI user creation (`npm run create-user`) |
+| `scripts/dev-local-db.mjs` | Dev-only local MongoDB launcher for testing without Atlas: data in `.data/mongo/db` (persists across restarts), then runs `next dev`/`next start` with `MONGODB_URI` injected. Refuses to run on Vercel and refuses production mode unless `MANAGER_ALLOW_LOCAL_DB=1` | _(dev helper)_ |
+| `scripts/provision-projects.ts` | Mints projects + `mlk_`/`mck_`/`mak_` keys and writes them to `.manager-keys.local.json` (git-ignored), printing the env vars to set per deployment. Loads `.env.local`/`.env` itself | _(provisioning helper)_ |
 
 ## Security Model (as implemented)
 

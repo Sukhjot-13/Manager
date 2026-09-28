@@ -19,6 +19,14 @@ export default async function LoginPage() {
         <p className="mt-1 mb-6 text-sm text-zinc-600 dark:text-zinc-400">
           Personal project control center.
         </p>
+        {readiness.setup === "ready" &&
+        (readiness.database.kind === "local" || readiness.database.kind === "memory_server") ? (
+          <p className="mb-4 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+            Running on a <strong>local database</strong> ({readiness.database.host}). Data lives
+            in <code>.data/mongo</code> on this machine and is not shared with any deployment.
+            Create a MongoDB Atlas cluster before testing in production.
+          </p>
+        ) : null}
         {readiness.setup === "ready" ? (
           <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
             <LoginForm />
