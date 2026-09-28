@@ -810,3 +810,13 @@ Permission-related work is not complete until:
 
 - **During active development (in progress):** Commit changes to the **local repository only** — do not push to remote. Use descriptive but incremental commit messages.
 - **When work is confirmed working:** Once I confirm (either explicitly or by expressing satisfaction with the result), push the commits to the **remote repository**. Do not wait for an explicit "push" or "commit" instruction — if the work is clearly done and I've acknowledged it's good, go ahead and push.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

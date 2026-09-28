@@ -13,9 +13,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Manager — Personal Project Control Center",
+  title: {
+    default: "Manager — Personal Project Control Center",
+    template: "%s · Manager",
+  },
   description:
     "Single hub for all projects: registry, centralized logs, secrets vault, GitHub links, and analytics.",
+  applicationName: "Manager",
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: { index: false, follow: false, noimageindex: true },
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Manager — Personal Project Control Center
 
-## Getting Started
+One web app to manage all projects: registry, centralized logging, an encrypted secrets
+vault, GitHub links, and analytics. Single admin, Next.js App Router, MongoDB Atlas,
+deployed on Vercel Hobby.
 
-First, run the development server:
+> **Status: P0 (skeleton) in progress — no product features are built yet.**
+> Full specification: [`docs/plan.md`](docs/plan.md) · Live file inventory:
+> [`docs/architecture.md`](docs/architecture.md) · Open items: [`docs/to-do.md`](docs/to-do.md)
+
+## Requirements
+
+- Node.js 24+
+- npm 11+
+- MongoDB Atlas M0 (needed from the projects feature onward)
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # fill in values; .env* is git-ignored
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Generate the secrets instead of typing them:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # AUTH_SECRET
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # ENV_MASTER_KEY (64 hex chars)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Scripts
 
-## Learn More
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server (relaxed CSP: `unsafe-eval` + `ws:`, no https upgrade) |
+| `npm run build` | Production build |
+| `npm start` | Serve the production build (strict CSP) |
+| `npm run lint` | ESLint (next core-web-vitals + TypeScript) |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | **Single test entry point** — all Vitest suites (`tests/unit/`, `tests/integration/`) |
+| `npm run test:watch` | Vitest in watch mode |
+| `npm run verify` | lint → typecheck → test → build (what CI should run) |
 
-To learn more about Next.js, take a look at the following resources:
+## Security posture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Implemented today (see `lib/csp.ts`, `proxy.ts`, `next.config.ts`):
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Per-request nonce CSP** — `script-src` has no `'unsafe-inline'` in production, so injected
+  markup cannot execute. Every script tag Next emits carries the matching nonce.
+- `frame-ancestors 'none'` + `X-Frame-Options: DENY` — no clickjacking (matters once the
+  secrets vault renders reveal buttons).
+- `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `nosniff`, HSTS, COOP/CORP.
+- `X-Powered-By` disabled; `reactStrictMode` on.
+- Pages render per request (`force-dynamic`) because static HTML cannot carry a per-request
+  nonce — this also keeps authenticated views out of shared caches.
+- `robots: noindex` — this is a private admin app and must not be indexed.
+- `Cache-Control: no-store` on `/api/ping` and (from P0 auth onward) on every authenticated GET.
+- `npm audit` is clean.
 
-## Deploy on Vercel
+Still to land with their phases: admin session cookie + middleware guard (P0), API-key
+hashing and rate limiting (P3), AES-256-GCM vault with audited reveals (P2), ingest hardening
+(P3/P4). The full threat model is `docs/plan.md` §7.6.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Layout
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+app/            routes + API routes (App Router, no src/ dir)
+lib/            shared server logic (CSP builder today; crypto, db, ratelimit later)
+proxy.ts        runs before every request: mints the CSP nonce
+tests/unit/     Vitest suites
+tests/integration/  reserved for DB-backed route tests
+docs/           plan, architecture inventory, suggestions, to-do
+```
+
+## Conventions
+
+`AGENTS.md` holds the working rules: keep `docs/architecture.md` current, log ideas and
+vulnerabilities in `docs/suggestions.md`, test every feature, and keep one test runner
+(`npm test`).
