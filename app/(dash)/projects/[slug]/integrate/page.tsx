@@ -6,6 +6,7 @@ import { requirePrincipalFromCookieStore } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getProjectBySlug } from "@/lib/projects";
 import { listApiKeys } from "@/lib/keyManagement";
+import { getEmbedSnippet } from "@/lib/tracker";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export default async function ProjectIntegratePage({
   const links = [
     { label: "API keys", href: `/projects/${project.slug}/keys` },
     { label: "Log viewer", href: `/projects/${project.slug}/logs` },
+    { label: "Analytics", href: `/projects/${project.slug}/analytics` },
   ];
 
   return (
@@ -72,7 +74,11 @@ export default async function ProjectIntegratePage({
           </a>
         ))}
       </nav>
-      <IntegratePanel origin={origin} projectSlug={project.slug} />
+      <IntegratePanel
+        origin={origin}
+        projectSlug={project.slug}
+        analytics={getEmbedSnippet({ origin, slug: project.slug })}
+      />
     </div>
   );
 }

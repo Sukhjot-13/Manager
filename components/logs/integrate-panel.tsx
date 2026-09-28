@@ -24,12 +24,28 @@ const FEATURES = [
   "Never logs its own transport failures; sendBeacon/keepalive flush on unload",
 ];
 
+const CUSTOM_EVENT_SNIPPET =
+  'window.__mgr("event", "signup_clicked", { plan: "pro" })';
+
+const CONTRACT = [
+  "Key kinds: mlk_ = server logs, mck_ = browser logs, mak_ = analytics only. An analytics key can never post logs.",
+  "A server key may only write source:\"server\" rows and a client key only source:\"client\" — a leaked browser key cannot forge server logs.",
+  "Batch limit 100 entries; message ≤ 1 KB; meta ≤ 8 KB JSON; whole request body ≤ 128 KB.",
+  "Client timestamps: entries older than 24 h or more than 10 min in the future are rejected (clock-skew guard).",
+  "Unknown, revoked or mismatched keys always get the same generic 401 — never a hint about which key exists.",
+  "429 + Retry-After when a key exceeds its rate limit; the SDK retries with backoff, raw HTTP clients should too.",
+  "ip, country, hostname, pid, runtime, receivedAt and source are stamped by the server and are rejected if you send them.",
+  "The SDK rate-limits itself (~50 logs/s) and drops what exceeds it, so a hot loop cannot flood the store.",
+];
+
 export function IntegratePanel({
   origin,
   projectSlug,
+  analytics,
 }: {
   origin: string;
   projectSlug: string;
+  analytics: { html: string; maskedHtml: string; hasKey: boolean; scriptUrl: string };
 }) {
   const { push } = useToast();
   const [apiKey, setApiKey] = useState("");
@@ -180,6 +196,67 @@ await log.flush();`;
             <code>analytics</code> key can never post logs. Entries older than 24 h or more
             than 10 min in the future are rejected.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>5 · Analytics (optional)</CardTitle>
+          {analytics.hasKey ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void copy(analytics.html, "tracker snippet")}
+            >
+              <Copy size={14} />
+              Copy
+            </Button>
+          ) : null}
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {analytics.hasKey ? (
+            <>
+              <pre className="overflow-x-auto rounded-md bg-zinc-950 p-3 text-[11px] leading-relaxed text-zinc-100">
+                {analytics.html}
+              </pre>
+              <p className="text-xs text-zinc-500">
+                Paste before your closing <code>&lt;/body&gt;</code> tag. It auto-tracks
+                pageviews (SPA routes included), click targets, referrers and UTM params, and
+                batches with <code>sendBeacon</code>. Fire your own events with{" "}
+                <code>{CUSTOM_EVENT_SNIPPET}</code>. Visitor ids are anonymous,
+                cookie-free and rotate daily.
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-zinc-500">
+              This project has no <code>analytics</code> key yet. Create one under{" "}
+              <a
+                href={`/projects/${projectSlug}/keys`}
+                className="underline"
+              >
+                API keys
+              </a>{" "}
+              to get the exact <code>&lt;script&gt;</code> tag with your key filled in.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Contract your app must respect</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-1.5 text-xs text-zinc-600 dark:text-zinc-300">
+            {CONTRACT.map((line) => (
+              <li key={line} className="flex items-start gap-2">
+                <span aria-hidden className="text-zinc-400">
+                  ·
+                </span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
         </CardContent>
       </Card>
 

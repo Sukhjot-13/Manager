@@ -4,7 +4,7 @@ One web app to manage every project: registry, centralized logging, an encrypted
 vault, GitHub links, and analytics. Single owner (plus optional extra users with roles),
 Next.js App Router, MongoDB Atlas, deployed on Vercel Hobby.
 
-> **Status: P0–P5 built.** 329 unit/integration tests + a 57-check production smoke test
+> **Status: P0–P5 built.** 338 unit/integration tests + a 57-check production smoke test
 > (`npm test`, `npm run test:e2e`).
 > Specification: [`docs/plan.md`](docs/plan.md) · inventory: [`docs/architecture.md`](docs/architecture.md)
 
@@ -32,6 +32,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # VIS
 
 Sign in at `/login` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`. The first successful login
 registers that account as the root admin (rank 0).
+
+If anything above is missing, the app tells you exactly what instead of failing silently:
+`/login` shows a setup panel listing the unset variables, `POST /api/auth/login` answers
+`503 {"error":"not_ready","setup":…,"missingEnv":[…]}`, and `GET /api/ping` reports
+`{"ok":false,"setup":"env_missing"|"database_unreachable","missingEnv":[…]}`
+(variable **names** only — never values).
 
 > Back up `ENV_MASTER_KEY` in a password manager. It never touches the database, and
 > without it every stored secret is unrecoverable. Rotating it is supported from
@@ -63,28 +69,102 @@ registers that account as the root admin (rank 0).
 
 ## Wiring your projects in
 
-**Logs** — create a server or client key under *Project → API keys*, then in your app:
+Everything below lives in each project's **Integrate** page in the app too, with your real
+key filled in and copy buttons.
+
+### 1. Logs — vendor the SDK
+
+Create a **server** key (`mlk_…`, Node/server code) or **client** key (`mck_…`, browser code)
+under *Project → API keys*. Keys are shown in full exactly once.
 
 ```bash
 curl -fsSL -H "x-manager-key: mlk_…" \
   "https://your-manager-host/api/sdk/logger" -o src/lib/logger.ts
 ```
 
+The downloaded file is the whole SDK: zero dependencies, zero registry, types included, and a
+usage header so the file explains itself inside your repo.
+
 ```ts
 import { initLogger } from "./lib/logger";
 
 const log = initLogger({
   endpoint: "https://your-manager-host",
-  appId: "my-store",
-  apiKey: "mlk_…",
+  appId: "my-store",                    // must match the Manager project
+  apiKey: process.env.MANAGER_LOG_KEY,  // never hardcode
   environment: "production",
+  release: process.env.GIT_SHA,
+  captureConsole: ["warn", "error"],
+  captureGlobalErrors: true,
+  redactKeys: ["password", "token", "authorization"],
+  sampleRate: { debug: 0.1 },
 });
+
 log.info("order_created", { orderId });
+await log.error("payment_failed", { code: "card_declined" });
+
+const req = log.child({ requestId });   // child logger with bound context
+req.info("checkout_step", { step: 3 });
+
+log.time("db_query");
+await runQuery();
+const ms = log.timeEnd("db_query");    // timing entry with durationMs
+
+// Server: adopt the browser's trace so both sides show up in one view
+const trace = log.withTrace(req.headers.get("x-trace-id") ?? log.newTrace());
+trace.info("query_start", { sql });
+
+await log.flush();                     // Node/browser also flush on shutdown automatically
 ```
 
-*Project → Integrate* has the exact copy-paste command and snippet for your key.
+What you get: isomorphic, levels `trace|debug|info|warn|error|fatal`, child loggers, timers,
+batching (20 entries / 5 s), backoff + retry, offline queue, console + uncaught-error +
+unhandled-rejection + fetch/XHR auto-capture, rich auto-context, trace correlation,
+redaction, error fingerprinting, and a self rate limiter so a hot loop cannot flood the store.
 
-**Analytics** — create an analytics key, then paste the `<script async src="…/t.js?v=1" data-app="…" data-key="mak_…">` tag from *Project → Analytics → Install tracker*.
+### 2. Logs — plain HTTP (any language)
+
+```bash
+curl -X POST "https://your-manager-host/api/ingest/logs" \
+  -H "content-type: application/json" \
+  -H "x-api-key: mlk_…" \
+  -d '{"logs":[{"level":"info","message":"job_done","ts":1700000000000,"meta":{"rows":12}}]}'
+```
+
+### 3. Analytics — one script tag
+
+Create an **analytics** key (`mak_…`) and paste the tag from *Project → Integrate* (or
+*Analytics → Install tracker*):
+
+```html
+<script async src="https://your-manager-host/t.js?v=1"
+        data-app="my-store" data-key="mak_live_…"></script>
+```
+
+It auto-tracks pageviews (SPA history changes included), click targets as
+`[path] element-text (#id .class)`, referrers and UTM params, and batches with
+`navigator.sendBeacon`. Custom events: `window.__mgr("event", "signup_clicked", { plan: "pro" })`.
+Visitor ids are HMAC-derived from IP + UA, cookie-free, and rotate daily.
+
+### Integration contract
+
+| Rule | Value |
+|---|---|
+| Key kinds | `mlk_` server logs · `mck_` browser logs · `mak_` analytics only (an analytics key can never post logs) |
+| Source scoping | a server key may only write `source:"server"`, a client key only `source:"client"` |
+| Batch limit | 100 entries per request |
+| Field caps | `message` ≤ 1 KB · `meta` ≤ 8 KB (JSON) · whole body ≤ 128 KB |
+| Timestamps | entries with `ts` older than 24 h or more than 10 min in the future are rejected |
+| Server-stamped | `source`, `ip`, `country`, `hostname`, `pid`, `runtimeVersion`, `rssMb`, `uptimeSec`, `receivedAt` — rejected if you send them |
+| Auth failures | unknown / revoked / mismatched keys always return the same generic `401` |
+| Rate limits | `429` + `Retry-After`; the SDK retries with exponential backoff, raw clients should too |
+| Kill switches | per project (*Overview* / *Analytics*) and global (*Settings*) stop ingest immediately |
+| SDK download | authenticated by the `x-manager-key` **header** only, `Cache-Control: no-store`, no CORS `*` — never put a key in a URL |
+| Retention | logs 30 d · events 90 d · secret audit 180 d · daily rollups kept indefinitely |
+
+Other things worth knowing: rotating `AUTH_SECRET` invalidates every session immediately;
+per-project ingest toggles let you stop a runaway app without revoking keys; and every
+reveal/copy/export in the vault is written to an audit log you can read in the UI.
 
 ## Security posture
 

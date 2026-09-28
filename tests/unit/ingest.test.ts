@@ -582,9 +582,28 @@ describe("bundled sdk artifact", () => {
 
   it("is a single self-contained file with zero imports", () => {
     expect(source.length).toBeGreaterThan(5000);
-    expect(source).not.toMatch(/^\s*import\s/m);
-    expect(source).not.toMatch(/\brequire\(/);
-    expect(source).not.toMatch(/from\s+["'][^"']+["']/);
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(code).not.toMatch(/^\s*import\s/m);
+    expect(code).not.toMatch(/\brequire\(/);
+    expect(code).not.toMatch(/from\s+["'][^"']+["']/);
+    expect(code).not.toMatch(/\bexport\s+\*\s+from\b/);
+  });
+
+  it("documents its own usage so a vendored copy is self-explanatory", () => {
+    for (const marker of [
+      "initLogger",
+      "log.child(",
+      "log.time(",
+      "x-trace-id",
+      "/api/ingest/logs",
+      "x-api-key",
+      "redactKeys",
+      "log.flush()",
+    ]) {
+      expect(source).toContain(marker);
+    }
   });
 
   it("keeps the inlined copy served by the download route in sync", () => {

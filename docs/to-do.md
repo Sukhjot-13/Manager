@@ -65,5 +65,25 @@ role isolation, logout).
 - [ ] Generate `AUTH_SECRET`, `ENV_MASTER_KEY`, `VISITOR_PEPPER` (commands in `README.md`), set
       `ADMIN_EMAIL`/`ADMIN_PASSWORD`, deploy to Vercel, and **back up `ENV_MASTER_KEY` offline**.
 
+## 2026-09-28 — Integration documentation pass
+
+Answering "can another app work out how to use this from outside?":
+
+- The vendored SDK file (`packages/logger/dist/logger.ts`) now carries a full usage header —
+  install command, init options, all six levels, child loggers, timers, trace correlation,
+  shutdown, behaviour under the hood, and the plain-HTTP contract with limits. A dev who
+  lands `src/lib/logger.ts` in their repo can use it without visiting Manager.
+- `README.md` gained an **Integration contract** table (key kinds, source scoping, batch/field
+  caps, timestamp guard, server-stamped fields, generic 401, 429 + `Retry-After`, kill
+  switches, header-only SDK auth, retention) plus copy-paste SDK, HTTP and tracker examples.
+- Each project's **Integrate** page is now the single stop: it previously covered only logs, so
+  the analytics snippet and the contract list were added there (the snippet arrives with the
+  project's real key from the server; without an analytics key it points at *API keys*).
+- Readiness/first-run behaviour is documented in `README.md` § Setup.
+- Tests: the zero-import guarantee for the bundle is now comment-aware (the new usage header
+  contains `import … from` examples), plus a new test asserting the bundle documents itself.
+
+Verification: `npm run verify` → lint clean, tsc clean, **338 tests**, build clean.
+
 Optional follow-ups are in [`suggestions.md`](./suggestions.md) (saved log filters, cap on
 `daily_stats` growth, CI workflow, npm-vs-pnpm spec drift, unused placeholder SVGs).
