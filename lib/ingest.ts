@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db/connect";
 import {
   LogModel,
@@ -358,29 +358,57 @@ export async function ingestLogs(
   let stored = 0;
   let duplicates = 0;
   if (prepared.length > 0) {
-    await LogModel.insertMany(prepared);
+    await LogModel.insertMany(prepared, { ordered: false });
     stored += prepared.length;
   }
-  const windowStart = new Date(now.getTime() - INGEST_LIMITS.groupWindowMs);
-  for (const doc of dedupe) {
-    const updated = await LogModel.findOneAndUpdate(
-      {
-        projectId,
-        fingerprint: doc.fingerprint,
-        ts: { $gte: windowStart },
-      },
-      {
-        $inc: { count: doc.count },
-        $max: { ts: doc.ts },
-        $set: { receivedAt: now },
-      },
-      { new: true },
-    );
-    if (updated === null) {
-      await LogModel.create(doc);
-      stored += 1;
-    } else {
+
+  // Fingerprint dedupe in a constant number of round trips.
+  //
+  // Doing one findOneAndUpdate per unique fingerprint meant a 100-error batch issued up
+  // to 200 serial queries; over a network (Atlas) that is seconds of latency per request.
+  // Now: one query for every fingerprint in the batch, one bulkWrite for the hits, and
+  // one insertMany for the misses.
+  if (dedupe.length > 0) {
+    const windowStart = new Date(now.getTime() - INGEST_LIMITS.groupWindowMs);
+    const fingerprints = dedupe.map((doc) => doc.fingerprint);
+    const existing = await LogModel.find(
+      { projectId, fingerprint: { $in: fingerprints }, ts: { $gte: windowStart } },
+      { fingerprint: 1, _id: 1 },
+    )
+      .lean()
+      .exec();
+    const existingByFingerprint = new Map<string, string>();
+    for (const row of existing) {
+      existingByFingerprint.set(row.fingerprint, String(row._id));
+    }
+
+    const increments: Parameters<typeof LogModel.bulkWrite>[0] = [];
+    const inserts: LogDoc[] = [];
+    for (const doc of dedupe) {
+      const id = existingByFingerprint.get(doc.fingerprint);
+      if (id === undefined) {
+        inserts.push(doc);
+        stored += 1;
+        continue;
+      }
+      increments.push({
+        updateOne: {
+          filter: { _id: new Types.ObjectId(id) },
+          update: {
+            $inc: { count: doc.count },
+            $max: { ts: doc.ts },
+            $set: { receivedAt: now },
+          },
+        },
+      });
       duplicates += doc.count;
+    }
+
+    if (increments.length > 0) {
+      await LogModel.bulkWrite(increments, { ordered: false });
+    }
+    if (inserts.length > 0) {
+      await LogModel.insertMany(inserts, { ordered: false });
     }
   }
 
@@ -470,6 +498,7 @@ export type LogGroup = {
 export const DEFAULT_QUERY_LIMIT = 50;
 export const MAX_QUERY_LIMIT = 200;
 export const MAX_EXPORT_ROWS = 10_000;
+const QUERY_MAX_TIME_MS = 5000;
 
 export function encodeCursor(ts: Date, id: string): string {
   return Buffer.from(`${ts.getTime()}|${id}`, "utf8").toString("base64url");
@@ -636,6 +665,7 @@ export async function queryLogs(
   const rows = await LogModel.find(filter)
     .sort({ ts: -1, _id: -1 })
     .limit(limit + 1)
+    .maxTimeMS(QUERY_MAX_TIME_MS)
     .lean();
   const page = rows.slice(0, limit) as (LogDoc & { _id: mongoose.Types.ObjectId })[];
   const last = page[page.length - 1];
@@ -646,16 +676,62 @@ export async function queryLogs(
   };
 }
 
+const COUNT_CACHE_TTL_MS = 10_000;
+const COUNT_MAX_TIME_MS = 2000;
+const countCache = new Map<string, { value: number; expiresAt: number }>();
+
+export function resetLogCountCache(): void {
+  countCache.clear();
+}
+
+/**
+ * Exact row count for the current filter.
+ *
+ * countDocuments is proportional to matched rows, and the log viewer calls this on every
+ * live-tail poll (~4s) as well as on each page render. It is now bounded by maxTimeMS and
+ * memoised for a few seconds, so polling shows a slightly stale number instead of
+ * re-scanning the collection. The count is display-only; the data itself is never cached.
+ */
 export async function countLogs(
   projectId: string,
   filters: LogQueryFilters = {},
+  options: { maxTimeMS?: number } = {},
 ): Promise<number> {
   const id = objectIdOrNull(projectId);
   if (id === null) {
     return 0;
   }
+  const cacheKey = `${id}:${stableFilterKey(filters)}`;
+  const cached = countCache.get(cacheKey);
+  if (cached !== undefined && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
   await connectToDatabase();
-  return LogModel.countDocuments(buildLogFilter(id, filters));
+  let value = 0;
+  try {
+    value = await LogModel.countDocuments(buildLogFilter(id, filters), {
+      maxTimeMS: options.maxTimeMS ?? COUNT_MAX_TIME_MS,
+    });
+  } catch {
+    // A count that runs long is a display problem, never a request failure.
+    value = cached?.value ?? 0;
+  }
+  countCache.set(cacheKey, { value, expiresAt: Date.now() + COUNT_CACHE_TTL_MS });
+  return value;
+}
+
+function stableFilterKey(filters: LogQueryFilters): string {
+  return JSON.stringify({
+    levels: [...(filters.levels ?? [])].sort(),
+    source: filters.source ?? "all",
+    environment: filters.environment ?? "",
+    release: filters.release ?? "",
+    search: filters.search ?? "",
+    sessionId: filters.sessionId ?? "",
+    traceId: filters.traceId ?? "",
+    since: filters.since?.toISOString() ?? "",
+    until: filters.until?.toISOString() ?? "",
+  });
 }
 
 export async function logFacets(

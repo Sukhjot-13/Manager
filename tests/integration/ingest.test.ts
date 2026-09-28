@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import mongoose from "mongoose";
 import type { NextRequest } from "next/server";
 import {
@@ -426,6 +426,93 @@ describe("ingest replay guard and duplicate collapsing", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.count).toBe(3);
     expect(rows[0]?.fingerprint).toHaveLength(16);
+  });
+
+  it("collapses a batch of distinct errors in a constant number of queries", async () => {
+    const findSpy = vi.spyOn(LogModel, "find");
+    const findOneAndUpdateSpy = vi.spyOn(LogModel, "findOneAndUpdate");
+    const bulkWriteSpy = vi.spyOn(LogModel, "bulkWrite");
+    const insertManySpy = vi.spyOn(LogModel, "insertMany");
+    const createSpy = vi.spyOn(LogModel, "create");
+
+    const response = await post({
+      key: serverKey,
+      body: {
+        logs: Array.from({ length: 60 }, (_, index) => ({
+          level: "error",
+          message: `bulk_probe_${index}`,
+          stack: `Error: probe ${index}\n    at probe${index}.js:1:1`,
+        })),
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ stored: 60 });
+
+    // The whole batch costs one lookup, one bulk write and one insert: not 120 round trips.
+    expect(findSpy.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(bulkWriteSpy.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(insertManySpy.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(findOneAndUpdateSpy).not.toHaveBeenCalled();
+
+    // And a second identical batch only updates counts.
+    bulkWriteSpy.mockClear();
+    insertManySpy.mockClear();
+    const second = await post({
+      key: serverKey,
+      body: {
+        logs: Array.from({ length: 60 }, (_, index) => ({
+          level: "error",
+          message: `bulk_probe_${index}`,
+          stack: `Error: probe ${index}\n    at probe${index}.js:1:1`,
+        })),
+      },
+    });
+    expect(await second.json()).toMatchObject({ stored: 0, duplicates: 60 });
+    expect(bulkWriteSpy).toHaveBeenCalledTimes(1);
+    expect(insertManySpy).not.toHaveBeenCalled();
+
+    findSpy.mockRestore();
+    findOneAndUpdateSpy.mockRestore();
+    bulkWriteSpy.mockRestore();
+    insertManySpy.mockRestore();
+    createSpy.mockRestore();
+  });
+
+  it("keeps the indexes the viewer and facet panel rely on", async () => {
+    await LogModel.syncIndexes();
+    const entries = LogModel.schema.indexes() as [
+      Record<string, number>,
+      { expireAfterSeconds?: number },
+    ][];
+    const scoped = entries.filter(([, options]) => options.expireAfterSeconds === undefined);
+    const ttl = entries.find(([, options]) => options.expireAfterSeconds !== undefined);
+
+    // Every query index is project-scoped so a filter never scans another project's rows.
+    expect(scoped.every(([spec]) => Object.keys(spec)[0] === "projectId")).toBe(true);
+    expect(scoped.some(([spec]) => spec.level !== undefined)).toBe(true);
+    expect(
+      scoped.some(([spec]) => spec.environment !== undefined && spec.release !== undefined),
+    ).toBe(true);
+    expect(scoped.some(([spec]) => spec.fingerprint !== undefined)).toBe(true);
+    expect(scoped.some(([spec]) => spec.ts !== undefined && spec._id !== undefined)).toBe(true);
+    expect(ttl?.[1]).toMatchObject({ expireAfterSeconds: 60 * 60 * 24 * 30 });
+  });
+
+  it("caches counts briefly so live-tail polling does not rescan the collection", async () => {
+    const { countLogs, resetLogCountCache } = await import("@/lib/ingest");
+    resetLogCountCache();
+    await post({
+      key: serverKey,
+      body: { logs: [{ level: "info", message: `count_probe_${Date.now()}` }] },
+    });
+    const first = await countLogs(projectId, {});
+    expect(first).toBeGreaterThan(0);
+    const spy = vi.spyOn(LogModel, "countDocuments");
+    expect(await countLogs(projectId, {})).toBe(first);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    resetLogCountCache();
   });
 
   it("never stores a server-set field even when the schema would allow the key", async () => {

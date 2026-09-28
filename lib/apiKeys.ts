@@ -63,17 +63,26 @@ export async function verifyApiKey(key: string): Promise<VerifiedKey | null> {
   return null;
 }
 
+const LAST_USED_THROTTLE_MS = 60_000;
+
 async function attachProject(
-  candidate: ApiKeyDoc & { _id: unknown },
+  candidate: ApiKeyDoc & { _id: unknown; lastUsedAt?: Date | null },
 ): Promise<VerifiedKey | null> {
   const project = await ProjectModel.findById(candidate.projectId).lean();
   if (project === null || project === undefined) {
     return null;
   }
-  void ApiKeyModel.updateOne(
-    { _id: candidate._id },
-    { $set: { lastUsedAt: new Date() } },
-  ).exec();
+  // Throttled: writing lastUsedAt on every ingest request doubled the write load of the
+  // hot path for information that only needs minute-level resolution.
+  const lastUsed = candidate.lastUsedAt ?? null;
+  const stale =
+    lastUsed === null || Date.now() - lastUsed.getTime() > LAST_USED_THROTTLE_MS;
+  if (stale) {
+    void ApiKeyModel.updateOne(
+      { _id: candidate._id },
+      { $set: { lastUsedAt: new Date() } },
+    ).exec();
+  }
   return {
     keyId: String(candidate._id),
     projectId: String(project._id),

@@ -154,7 +154,9 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/integration/readiness.test.ts` | Unconfigured deployment: missing-var detection, actionable 503 login (never a bare 500), no session cookie, unreachable-DB path, configured path still works |
 | `tests/unit/page-rendering.test.ts` | Landing page must stay `force-dynamic` (nonce cannot be injected into static HTML) |
 | `tests/unit/secrets.test.ts` | `.env` parsing, crypto round-trip/tamper/fresh-IV, masking, permission map |
-| `tests/unit/ingest.test.ts` | Regex escaping, timestamp guards, caps, fingerprinting, redaction, CSV, SDK internals |
+| `tests/unit/ingest.test.ts` | Regex escaping, timestamp guards, caps, fingerprinting, redaction, CSV, SDK internals (incl. `captureConsole: null` no longer crashing, and no process listeners unless opted in) |
+| `scripts/bench-ingest.mjs` | Ingest benchmark: bulk-insert path, in-batch dedupe, worst-case distinct-fingerprint path |
+| `scripts/measure-log-delivery.mjs` (in consumer repos) | Measures requests-per-burst and client-side drop count |
 | `tests/unit/analytics.test.ts` | Visitor ids, bot table, ranges, rollup maths, origin check, tracker assertions |
 | `tests/integration/auth.test.ts` | Login policy, lockout, cookie flags, session bootstrap, proxy guard, fail-closed behaviour |
 | `tests/integration/projects.test.ts` | Projects CRUD, authorization, regex-injection, cascade, settings, users + delegation boundaries |
@@ -175,6 +177,8 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 - **Route enforcement** — every handler calls `authorize(request, permission)`; the proxy adds a coarse guard so hidden pages are not even rendered for unauthorized roles. The client `PermissionGate` never authorizes anything by itself.
 - **CSP** — one canonical builder; per-request nonce; no `'unsafe-inline'` script source; `frame-ancestors 'none'` (clickjacking defence for the vault reveal button); every route dynamic so shared caches cannot hold another session's HTML.
 - **Ingest** — hashed keys + constant-time compare, generic 401s, strict Zod whitelists that reject server-set fields, 128 KB body caps, batch caps, replay/stale guards, in-memory + durable rate limits (unique index prevents forked counters), global and per-project kill switches, bot filtering, origin soft-check on events.
+- **Ingest performance** — fingerprint dedupe resolves a whole batch in constant round trips (one `$in` lookup, one `bulkWrite` of `$inc`s, one `insertMany` of the misses) instead of one `findOneAndUpdate` per unique fingerprint. `lastUsedAt` writes are throttled to once a minute per key so key verification stops writing on every request. The SDK batches server logs on a configurable window and self-limits at 500/s, reporting anything it drops.
+- **Read performance** — every query index is project-scoped (`{projectId, ts, _id}`, `{projectId, fingerprint, ts}`, `{projectId, traceId, ts}`, `{projectId, level, ts}`, `{projectId, environment, release, ts}`) so a filter never scans another project's rows and the facet `distinct()` calls are index-backed; viewer pages are bounded by `maxTimeMS`, and the informational row count is memoised for 10s so 4s live-tail polling does not rescan the collection.
 - **Vault** — AES-256-GCM with a fresh 12-byte IV per write, `keyVer` per row, masked listings, single-value reveal with 30 s client re-mask, audited reveal/copy/export, password + type-to-confirm on export, resumable key rotation.
 - **Caching** — `no-store` on every authenticated response; exports capped at 10k rows; CSV cells that could be interpreted as formulas are prefixed with `'`.
 - **Dependency floor** — minimal, deliberately chosen deps; `npm audit` clean; the SDK ships zero dependencies.

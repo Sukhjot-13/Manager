@@ -82,11 +82,26 @@
  * - Fingerprinting: identical errors collapse into one grouped row with a counter.
  * - Self-protection: internal rate limiter (~50 logs/s), hard payload caps, and it never logs
  *   its own transport failures.
+ * - captureGlobalErrors captures window.onerror + unhandledrejection in the browser. In Node it
+ *   deliberately does NOT attach process listeners unless you pass captureProcessErrors: true,
+ *   because frameworks like Next.js own process error handling and extra listeners there can
+ *   silently stop delivery. Log from your error boundary instead.
  * - Privacy: IP addresses, request ids and receivedAt are stamped server-side by Manager and
  *   can never be forged from the payload.
  *
  * ---------------------------------------------------------------------------
  * 6. NO SDK? PLAIN HTTP
+ * ---------------------------------------------------------------------------
+ *
+ *   Delivery tuning (optional, usually right for a server):
+ *     flushIntervalMs: 250    // batch window; lower = fresher, more requests
+ *     maxLogsPerSecond: 500   // self-protection ceiling; the server enforces the real limit
+ *   Both defaults are sized for server code. A burst of N lines becomes ONE request per
+ *   batch window, not one per line, and anything this client had to drop is reported as a
+ *   warn entry named manager_sdk_dropped_entries instead of vanishing.
+ *
+ * ---------------------------------------------------------------------------
+ * 7. PLAIN HTTP EQUIVALENT
  * ---------------------------------------------------------------------------
  *
  *   POST https://<your-manager-host>/api/ingest/logs
@@ -115,8 +130,15 @@ type InitOptions = {
   environment?: string;
   release?: string;
   appVersion?: string;
-  captureConsole?: boolean | readonly LogLevel[];
+  /** `null`/`false` disables console capture; `true` captures every level. */
+  captureConsole?: boolean | readonly LogLevel[] | null;
   captureGlobalErrors?: boolean;
+  /**
+   * Attach process-level `uncaughtException` / `unhandledRejection` listeners (Node only).
+   * Off by default: server frameworks own process error handling and extra listeners can
+   * stop log delivery. Opt in on plain Node scripts and workers.
+   */
+  captureProcessErrors?: boolean;
   captureFetch?: boolean;
   redactKeys?: readonly string[];
   sampleRate?: number | Partial<Record<LogLevel, number>>;
@@ -190,7 +212,16 @@ const ERROR_LEVELS: readonly LogLevel[] = ["error", "fatal"];
 const ALWAYS_KEPT: readonly LogLevel[] = ["error", "fatal"];
 const FLUSH_INTERVAL_MS = 5000;
 const MAX_BATCH_SIZE = 20;
-const MAX_LOGS_PER_SECOND = 50;
+/**
+ * Self-protection ceiling, per client process.
+ *
+ * This is a runaway guard, not the real limit: the ingest endpoint enforces the
+ * authoritative per-key rate limit, and repeated errors collapse by fingerprint. A 50/s
+ * cap silently threw away most of a busy server's output, so the default is generous and
+ * anything dropped is reported (see reportDrops) rather than vanishing.
+ */
+const MAX_LOGS_PER_SECOND = 500;
+const DROP_REPORT_EVERY = 250;
 const MAX_QUEUE_SIZE = 200;
 const MAX_MESSAGE_CHARS = 1024;
 const MAX_STACK_CHARS = 8000;
@@ -249,6 +280,7 @@ type Resolved = {
   appVersion: string;
   consoleLevels: readonly LogLevel[] | null;
   captureGlobalErrors: boolean;
+  captureProcessErrors: boolean;
   captureFetch: boolean;
   redactKeys: readonly string[];
   sampleRate: Record<string, number>;
@@ -269,6 +301,7 @@ type State = {
   tokens: number;
   lastRefill: number;
   dropped: number;
+  reportedDrops: number;
   attempt: number;
   flushTimer: ReturnType<typeof setTimeout> | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
@@ -568,10 +601,48 @@ function takeTokens(state: State): boolean {
   state.lastRefill = now;
   if (state.tokens < 1) {
     state.dropped += 1;
+    reportDrops(state, "rate_limited");
     return false;
   }
   state.tokens -= 1;
   return true;
+}
+
+/**
+ * Surfaces silently-discarded entries as a single warn-level entry, so a client that
+ * outran its own ceiling is visible in the log viewer instead of quietly losing data.
+ * Reports at most once per DROP_REPORT_EVERY drops and never recurses.
+ */
+function reportDrops(state: State, reason: string): void {
+  if (transportDepth > 0) {
+    return;
+  }
+  if (state.dropped < DROP_REPORT_EVERY) {
+    return;
+  }
+  if (state.reportedDrops >= state.dropped) {
+    return;
+  }
+  const since = state.dropped - state.reportedDrops;
+  state.reportedDrops = state.dropped;
+  const entry = buildEntry(
+    state,
+    rootBindings(state),
+    "warn",
+    "manager_sdk_dropped_entries",
+    { dropped: since, totalDropped: state.dropped, reason },
+    "",
+    undefined,
+  );
+  transportDepth += 1;
+  try {
+    state.queue.push(entry);
+    void flush(state, {});
+  } catch {
+    /* never throw from the drop reporter */
+  } finally {
+    transportDepth -= 1;
+  }
 }
 
 function shouldSample(state: State, level: LogLevel): boolean {
@@ -909,6 +980,7 @@ function enqueue(state: State, entry: LogEntry): void {
   if (state.queue.length > state.config.maxQueueSize) {
     state.queue = state.queue.slice(-state.config.maxQueueSize);
     state.dropped += 1;
+    reportDrops(state, "queue_overflow");
   }
   if (state.queue.length >= state.config.maxBatchSize) {
     void flush(state, {});
@@ -1085,6 +1157,9 @@ function installGlobalErrors(state: State): void {
         "fatal",
       );
     });
+  }
+  if (state.config.captureProcessErrors !== true) {
+    return;
   }
   const proc = (
     globalThis as {
@@ -1352,15 +1427,18 @@ function normalizeEndpoint(endpoint: string): string {
 }
 
 function normalizeConsoleLevels(
-  value: boolean | readonly LogLevel[] | undefined,
+  value: boolean | readonly LogLevel[] | null | undefined,
 ): readonly LogLevel[] | null {
-  if (value === undefined || value === false) {
+  if (value === undefined || value === null || value === false) {
     return null;
   }
   if (value === true) {
     return LEVELS;
   }
-  return value.filter((level) => LEVELS.includes(level));
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return value.filter((level): level is LogLevel => LEVELS.includes(level as LogLevel));
 }
 
 function normalizeSampleRate(
@@ -1404,6 +1482,7 @@ function createState(options: InitOptions): State {
     appVersion: trim(options.appVersion ?? options.release ?? "", FIELD_CAPS.appVersion),
     consoleLevels: normalizeConsoleLevels(options.captureConsole),
     captureGlobalErrors: options.captureGlobalErrors === true,
+    captureProcessErrors: options.captureProcessErrors === true,
     captureFetch: options.captureFetch === true,
     redactKeys:
       options.redactKeys === undefined || options.redactKeys.length === 0
@@ -1426,6 +1505,7 @@ function createState(options: InitOptions): State {
     tokens: config.maxLogsPerSecond,
     lastRefill: Date.now(),
     dropped: 0,
+    reportedDrops: 0,
     attempt: 0,
     flushTimer: null,
     retryTimer: null,

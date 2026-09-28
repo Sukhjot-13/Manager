@@ -152,6 +152,21 @@ beforeEach(async () => {
   serverKey = await seedKey("server", "api-worker");
 });
 
+describe("analytics storage", () => {
+  it("keeps analytics indexes project-scoped and TTL-bound", async () => {
+    await EventModel.syncIndexes();
+    const entries = EventModel.schema.indexes() as [
+      Record<string, number>,
+      { expireAfterSeconds?: number },
+    ][];
+    const scoped = entries.filter(([, options]) => options.expireAfterSeconds === undefined);
+    const ttl = entries.find(([, options]) => options.expireAfterSeconds !== undefined);
+    expect(scoped.every(([spec]) => Object.keys(spec)[0] === "projectId")).toBe(true);
+    expect(scoped.some(([spec]) => spec.ts !== undefined && spec._id !== undefined)).toBe(true);
+    expect(ttl?.[1]).toMatchObject({ expireAfterSeconds: 60 * 60 * 24 * 90 });
+  });
+});
+
 describe("analytics ingest authentication", () => {
   it("answers a request with no key at all with a generic 401", async () => {
     const response = await post({ key: null });

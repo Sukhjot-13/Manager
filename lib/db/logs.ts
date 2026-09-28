@@ -26,12 +26,12 @@ const logSchema = new Schema(
     message: { type: String, required: true, maxlength: 1024 },
     meta: { type: Schema.Types.Mixed, default: undefined },
     stack: { type: String, default: "" },
-    fingerprint: { type: String, default: "", index: true },
+    fingerprint: { type: String, default: "" },
     count: { type: Number, default: 1 },
     source: { type: String, enum: LOG_SOURCES, required: true },
     sessionId: { type: String, default: "" },
     pageId: { type: String, default: "" },
-    traceId: { type: String, default: "", index: true },
+    traceId: { type: String, default: "" },
     requestId: { type: String, default: "" },
     url: { type: String, default: "" },
     route: { type: String, default: "" },
@@ -63,6 +63,14 @@ const logSchema = new Schema(
 
 logSchema.index({ projectId: 1, ts: -1, _id: -1 });
 logSchema.index({ projectId: 1, fingerprint: 1, ts: -1 });
+logSchema.index({ projectId: 1, traceId: 1, ts: -1 });
+// The viewer filters on level and on environment/release, and the facet panel runs
+// distinct() on environment and release on every load. Without these the filtered
+// queries and both distinct() calls fall back to scanning the project's documents.
+logSchema.index({ projectId: 1, level: 1, ts: -1 });
+// traceId lookups are always project-scoped ("Together" view), so the compound index
+// replaces what used to be a standalone index on traceId.
+logSchema.index({ projectId: 1, environment: 1, release: 1, ts: -1 });
 logSchema.index({ ts: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });
 
 export type LogDoc = mongoose.InferSchemaType<typeof logSchema> & {

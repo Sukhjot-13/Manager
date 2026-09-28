@@ -1,6 +1,9 @@
 import type { NextRequest } from "next/server";
 import { kindCanWriteLogs, verifyApiKey } from "@/lib/apiKeys";
-import { LOGGER_SDK_SOURCE } from "@/packages/logger/dist/logger.source";
+import {
+  LOGGER_SDK_SOURCE,
+  LOGGER_SDK_SOURCE_JS,
+} from "@/packages/logger/dist/logger.source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,15 +28,19 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (key === null || !kindCanWriteLogs(key.kind)) {
     return deny();
   }
-  if (LOGGER_SDK_SOURCE.trim() === "") {
+  const wantsJs = request.nextUrl.searchParams.get("format") === "js";
+  const body = wantsJs ? LOGGER_SDK_SOURCE_JS : LOGGER_SDK_SOURCE;
+  const filename = wantsJs ? "logger.js" : "logger.ts";
+  if (body.trim() === "") {
     return Response.json({ error: "sdk_unavailable" }, { status: 500, headers: NO_STORE });
   }
-  return new Response(LOGGER_SDK_SOURCE, {
+  return new Response(body, {
     status: 200,
     headers: {
       ...NO_STORE,
       "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": `attachment; filename="logger.ts"`,
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "X-Sdk-Format": wantsJs ? "js" : "ts",
     },
   });
 }

@@ -16,7 +16,7 @@ const eventSchema = new Schema(
     name: { type: String, default: "" },
     path: { type: String, default: "", maxlength: 512 },
     props: { type: Schema.Types.Mixed, default: undefined },
-    visitorId: { type: String, default: "", index: true },
+    visitorId: { type: String, default: "" },
     sessionId: { type: String, default: "" },
     referrer: { type: String, default: "" },
     utm: { type: Schema.Types.Mixed, default: undefined },
@@ -25,7 +25,7 @@ const eventSchema = new Schema(
     os: { type: String, default: "" },
     country: { type: String, default: "" },
     ip: { type: String, default: "" },
-    rejected: { type: Boolean, default: false, index: true },
+    rejected: { type: Boolean, default: false },
     ts: { type: Date, required: true },
     receivedAt: { type: Date, default: Date.now },
   },
@@ -33,6 +33,10 @@ const eventSchema = new Schema(
 );
 
 eventSchema.index({ projectId: 1, ts: -1, _id: -1 });
+// The rollup job reads a project's day window while skipping rejected events, so the
+// flag rides along in that index instead of costing a standalone one per write.
+// Visitor uniques come from the daily rollups, which are keyed by (projectId, date);
+// analytics reads are always project-scoped, so no standalone visitorId index is needed.
 eventSchema.index({ ts: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 90 });
 
 export type EventDoc = mongoose.InferSchemaType<typeof eventSchema> & {

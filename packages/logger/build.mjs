@@ -6,6 +6,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const srcDir = resolve(here, "src");
 const distDir = resolve(here, "dist");
 const outFile = resolve(distDir, "logger.ts");
+const outFileJs = resolve(distDir, "logger.js");
 
 const TYPES_REFERENCE = /^import type \{[\s\S]*?\} from "\.\/types";\n/m;
 const EXPORT_PREFIX = /^export (?=(?:type|interface|const|function|let|class)\b)/gm;
@@ -36,6 +37,22 @@ const publicApi = [
 ];
 if (publicApi.length === 0) {
   throw new Error("no public API detected in packages/logger/src/index.ts");
+}
+
+const { createRequire } = await import("node:module");
+const require = createRequire(import.meta.url);
+const ts = require("typescript");
+
+function emitJavaScript(source) {
+  const result = ts.transpileModule(source, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.ESNext,
+      removeComments: false,
+      newLine: ts.NewLineKind.LineFeed,
+    },
+  });
+  return result.outputText;
 }
 
 const banner = `/**
@@ -122,11 +139,26 @@ const banner = `/**
  * - Fingerprinting: identical errors collapse into one grouped row with a counter.
  * - Self-protection: internal rate limiter (~50 logs/s), hard payload caps, and it never logs
  *   its own transport failures.
+ * - captureGlobalErrors captures window.onerror + unhandledrejection in the browser. In Node it
+ *   deliberately does NOT attach process listeners unless you pass captureProcessErrors: true,
+ *   because frameworks like Next.js own process error handling and extra listeners there can
+ *   silently stop delivery. Log from your error boundary instead.
  * - Privacy: IP addresses, request ids and receivedAt are stamped server-side by Manager and
  *   can never be forged from the payload.
  *
  * ---------------------------------------------------------------------------
  * 6. NO SDK? PLAIN HTTP
+ * ---------------------------------------------------------------------------
+ *
+ *   Delivery tuning (optional, usually right for a server):
+ *     flushIntervalMs: 250    // batch window; lower = fresher, more requests
+ *     maxLogsPerSecond: 500   // self-protection ceiling; the server enforces the real limit
+ *   Both defaults are sized for server code. A burst of N lines becomes ONE request per
+ *   batch window, not one per line, and anything this client had to drop is reported as a
+ *   warn entry named manager_sdk_dropped_entries instead of vanishing.
+ *
+ * ---------------------------------------------------------------------------
+ * 7. PLAIN HTTP EQUIVALENT
  * ---------------------------------------------------------------------------
  *
  *   POST https://<your-manager-host>/api/ingest/logs
@@ -151,14 +183,21 @@ if (/^\s*(?:import|require)\b/m.test(output)) {
   throw new Error("bundled SDK must be self-contained: no imports allowed");
 }
 
+const jsOutput = emitJavaScript(output);
+const typeSyntax = jsOutput.match(/^\s*(?:interface|type)\s+\w+|<[A-Za-z_$][\w$]*>\(/m);
+if (typeSyntax !== null) {
+  throw new Error(`logger.js still contains type syntax near: ${typeSyntax[0]}`);
+}
+
 await mkdir(distDir, { recursive: true });
 await writeFile(outFile, output, "utf8");
+await writeFile(outFileJs, jsOutput, "utf8");
 await writeFile(
   resolve(distDir, "logger.source.ts"),
-  `export const LOGGER_SDK_SOURCE = ${JSON.stringify(output)};\n`,
+  `export const LOGGER_SDK_SOURCE = ${JSON.stringify(output)};\nexport const LOGGER_SDK_SOURCE_JS = ${JSON.stringify(jsOutput)};\n`,
   "utf8",
 );
 
 process.stdout.write(
-  `wrote ${outFile} (${output.length} bytes, ${output.split("\n").length} lines)\n`,
+  `wrote ${outFile} (${output.length} bytes) and ${outFileJs} (${jsOutput.length} bytes)\n`,
 );

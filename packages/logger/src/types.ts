@@ -9,8 +9,15 @@ export type InitOptions = {
   environment?: string;
   release?: string;
   appVersion?: string;
-  captureConsole?: boolean | readonly LogLevel[];
+  /** `null`/`false` disables console capture; `true` captures every level. */
+  captureConsole?: boolean | readonly LogLevel[] | null;
   captureGlobalErrors?: boolean;
+  /**
+   * Attach process-level `uncaughtException` / `unhandledRejection` listeners (Node only).
+   * Off by default: server frameworks own process error handling and extra listeners can
+   * stop log delivery. Opt in on plain Node scripts and workers.
+   */
+  captureProcessErrors?: boolean;
   captureFetch?: boolean;
   redactKeys?: readonly string[];
   sampleRate?: number | Partial<Record<LogLevel, number>>;

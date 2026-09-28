@@ -591,6 +591,50 @@ describe("bundled sdk artifact", () => {
     expect(code).not.toMatch(/\bexport\s+\*\s+from\b/);
   });
 
+  it("accepts null captureConsole instead of crashing", async () => {
+    const { initLogger: init } = await import("../../packages/logger/src/index");
+    const logger = init({
+      endpoint: "http://127.0.0.1:1",
+      appId: "probe",
+      apiKey: "mlk_probe",
+      captureConsole: null,
+    });
+    expect(typeof logger.info).toBe("function");
+    expect(() => logger.info("console_disabled_ok")).not.toThrow();
+  });
+
+  it("does not attach process error listeners unless explicitly opted in", async () => {
+    const before = {
+      uncaught: process.listenerCount("uncaughtException"),
+      rejection: process.listenerCount("unhandledRejection"),
+    };
+    const { initLogger: init } = await import("../../packages/logger/src/index");
+    const logger = init({
+      endpoint: "http://127.0.0.1:1",
+      appId: "probe",
+      apiKey: "mlk_probe",
+      captureGlobalErrors: true,
+    });
+    await logger.flush();
+    expect(process.listenerCount("uncaughtException")).toBe(before.uncaught);
+    expect(process.listenerCount("unhandledRejection")).toBe(before.rejection);
+
+    const optIn = init({
+      endpoint: "http://127.0.0.1:1",
+      appId: "probe",
+      apiKey: "mlk_probe",
+      captureGlobalErrors: true,
+      captureProcessErrors: true,
+    });
+    expect(process.listenerCount("uncaughtException")).toBe(before.uncaught + 1);
+    process.removeAllListeners("uncaughtException");
+    process.removeAllListeners("unhandledRejection");
+    if (before.uncaught > 0) {
+      process.on("uncaughtException", () => undefined);
+    }
+    void optIn;
+  });
+
   it("documents its own usage so a vendored copy is self-explanatory", () => {
     for (const marker of [
       "initLogger",
@@ -606,18 +650,21 @@ describe("bundled sdk artifact", () => {
     }
   });
 
-  it("keeps the inlined copy served by the download route in sync", () => {
+  it("keeps the inlined copies served by the download route in sync", () => {
     const inlined = readFileSync(
       resolve(process.cwd(), "packages/logger/dist/logger.source.ts"),
       "utf8",
     );
-    const marker = "export const LOGGER_SDK_SOURCE = ";
-    const start = inlined.indexOf(marker) + marker.length;
-    const trimmed = inlined.trimEnd();
-    expect(trimmed.startsWith("export const LOGGER_SDK_SOURCE = \"")).toBe(true);
-    expect(trimmed.endsWith("\";")).toBe(true);
-    const decoded = JSON.parse(trimmed.slice(start, trimmed.length - 1)) as string;
-    expect(decoded).toBe(source);
+    const exported: Record<string, string> = {};
+    const pattern = /export const (\w+) = ("(?:[^"\\]|\\.)*");/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(inlined)) !== null) {
+      exported[match[1]] = JSON.parse(match[2]) as string;
+    }
+    expect(exported.LOGGER_SDK_SOURCE).toBe(source);
+    expect(exported.LOGGER_SDK_SOURCE_JS).toBe(
+      readFileSync(resolve(process.cwd(), "packages/logger/dist/logger.js"), "utf8"),
+    );
   });
 
   it("exposes the documented public API", () => {

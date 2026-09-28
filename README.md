@@ -134,9 +134,21 @@ await log.flush();                     // Node/browser also flush on shutdown au
 ```
 
 What you get: isomorphic, levels `trace|debug|info|warn|error|fatal`, child loggers, timers,
-batching (20 entries / 5 s), backoff + retry, offline queue, console + uncaught-error +
-unhandled-rejection + fetch/XHR auto-capture, rich auto-context, trace correlation,
-redaction, error fingerprinting, and a self rate limiter so a hot loop cannot flood the store.
+batching, backoff + retry, offline queue, console + uncaught-error + unhandled-rejection +
+fetch/XHR auto-capture, rich auto-context, trace correlation, redaction, error fingerprinting,
+and a self rate limiter so a hot loop cannot flood the store.
+
+#### Tuning delivery (server code)
+
+| Option | Default | Use it to |
+|---|---|---|
+| `flushIntervalMs` | 5000 | Shorten the batch window. A burst of N lines costs one request per window, not N. 250 ms is a good server value; 100–250 ms if you want entries visible almost immediately. |
+| `maxLogsPerSecond` | 500 | Raise/lower this client's self-protection ceiling. The authoritative limit is per API key on the server (Settings → kill switches, plus the per-key rate limit), so this only guards against a runaway loop inside one process. |
+| `captureProcessErrors` | `false` | Attach `process.on('uncaughtException'/'unhandledRejection')`. Leave off under Next.js/Nest/Fastify — they own process error handling, and extra listeners there stop delivery. Log from your error boundary instead. |
+
+Anything the client has to drop is reported to Manager as a `warn` entry named
+`manager_sdk_dropped_entries` (with `dropped` and `totalDropped`), so a client that outran its
+own ceiling is visible rather than silently lossy.
 
 ### 2. Logs — plain HTTP (any language)
 
