@@ -2,8 +2,8 @@
 
 > Status: **P0–P5 complete** (2026-09-28). Spec: [`docs/plan.md`](./plan.md). Open items: [`docs/to-do.md`](./to-do.md).
 > This is the live inventory (file → purpose → functions) — update it on every change.
-> Inventory audit 2026-09-28: full scan of all 132 source files (`.ts`/`.tsx`/`.mjs`) plus config,
-> assets and docs. Verification: `npm run verify` (lint + tsc + 329 tests + build) and
+> Inventory audit 2026-09-28: full scan of all 134 source files (`.ts`/`.tsx`/`.mjs`) plus config,
+> assets and docs. Verification: `npm run verify` (lint + tsc + 337 tests + build) and
 > `npm run test:e2e` (57 checks against a real production server + real MongoDB).
 
 ## Environment Variables
@@ -60,6 +60,7 @@
 | `lib/github.ts` | Repo enrichment with 1h cache | `parseRepoSlug`, `fetchRepoInfo`, `refreshProjectGithub`, type `GithubRepoInfo` |
 | `lib/tracker.ts` | Analytics tracker source + embed snippet | `TRACKER_SOURCE`, `TRACKER_VERSION`, `TRACKER_PATH`, `getEmbedSnippet`, `MASKED_KEY_TAIL`, types `EmbedSnippet`/`EmbedSnippetProject` |
 | `lib/trackerHandler.ts` | Shared `/t.js` response (immutable cache + ETag/304) | `trackerResponse`, `trackerHeaders`, `TRACKER_ETAG` |
+| `lib/readiness.ts` | First-run diagnostics: which env vars are missing, is the database reachable, and what to tell the user | `checkReadiness`, `missingEnvVars`, `setupHint`, type `ReadinessReport` |
 | `lib/cn.ts` | Class-name helper | `cn` |
 
 ## API Routes
@@ -68,8 +69,8 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 
 | Route | Methods | Permission | Notes |
 |---|---|---|---|
-| `app/api/ping/route.ts` | `GET` | public | `{ ok: true }`, `no-store` |
-| `app/api/auth/login/route.ts` | `POST` | public | env/bcrypt login, generic errors, 429 + `Retry-After` on lockout, sets the session cookie |
+| `app/api/ping/route.ts` | `GET` | public | readiness probe: `{ ok, setup, database, missingEnv }`, `no-store` — never echoes a value |
+| `app/api/auth/login/route.ts` | `POST` | public | readiness-gated (503 + missing names when unconfigured), env/bcrypt login, generic errors, 429 + `Retry-After` on lockout, sets the session cookie |
 | `app/api/auth/logout/route.ts` | `POST` | public | clears the cookie (`Max-Age=0`) |
 | `app/api/auth/session` | — | session | answered inside `proxy.ts` (principal + capabilities) |
 | `app/api/projects/route.ts` | `GET`/`POST` | `projects.view` / `projects.create` | list with escaped search, create with unique slug |
@@ -104,7 +105,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/layout.tsx` | Fonts, global CSS, private-app metadata (`noindex`) | `metadata`, `RootLayout` |
 | `app/page.tsx` | Public landing (feature summary, sign-in or dashboard link) | `Home` |
 | `app/globals.css` | Tailwind v4 theme, Geist font vars, `color-scheme` | _(styles)_ |
-| `app/(auth)/login/page.tsx` + `login-form.tsx` | Sign-in form with lockout messaging | `LoginPage`, `LoginForm` |
+| `app/(auth)/login/page.tsx` + `login-form.tsx` | Sign-in form with lockout messaging; shows an actionable setup notice instead of the form when env/DB are not ready | `LoginPage`, `LoginForm` |
 | `app/(dash)/layout.tsx` | Authenticated shell: sidebar nav, `CapabilityProvider`, `ToastProvider` | `DashLayout` |
 | `app/(dash)/dashboard/page.tsx` | Overview: project cards, key/user counts, ingest state, live API ping | `DashboardPage` |
 | `app/(dash)/projects/page.tsx` + `components/projects/project-list.tsx` | Search, status filter, grid/table, create dialog, delete confirmation | `ProjectsPage`, `ProjectList` |
@@ -149,7 +150,8 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/unit/permissions.test.ts` | 21 tests: resolution order, root-admin invariance, overrides, malformed input, delegation/rank/ceiling rules |
 | `tests/unit/csp.test.ts` | Nonce format/uniqueness, every locked-down directive, dev/prod differences |
 | `tests/unit/security-headers.test.ts` | `next.config.ts` header regression suite |
-| `tests/unit/api-ping.test.ts` | Health route contract |
+| `tests/unit/api-ping.test.ts` | Health route contract + no secret values in the payload |
+| `tests/integration/readiness.test.ts` | Unconfigured deployment: missing-var detection, actionable 503 login (never a bare 500), no session cookie, unreachable-DB path, configured path still works |
 | `tests/unit/page-rendering.test.ts` | Landing page must stay `force-dynamic` (nonce cannot be injected into static HTML) |
 | `tests/unit/secrets.test.ts` | `.env` parsing, crypto round-trip/tamper/fresh-IV, masking, permission map |
 | `tests/unit/ingest.test.ts` | Regex escaping, timestamp guards, caps, fingerprinting, redaction, CSV, SDK internals |

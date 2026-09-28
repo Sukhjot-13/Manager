@@ -31,6 +31,13 @@ export function LoginForm() {
     const body = (await response.json().catch(() => ({}))) as {
       retryAfterSeconds?: number;
     };
+    if (response.status === 503) {
+      setError(
+        "The app is not configured yet — set the missing environment variables (see README § Setup).",
+      );
+      setPending(false);
+      return;
+    }
     setError(
       response.status === 429
         ? `Too many attempts. Try again in ${body.retryAfterSeconds ?? 60}s.`

@@ -14,7 +14,10 @@ const cache: MongooseCache =
 
 globalForMongoose.__managerMongoose = cache;
 
-export async function connectToDatabase(uri?: string): Promise<typeof mongoose> {
+export async function connectToDatabase(
+  uri?: string,
+  options: { serverSelectionTimeoutMS?: number } = {},
+): Promise<typeof mongoose> {
   const connectionString = uri ?? process.env.MONGODB_URI;
   if (connectionString === undefined || connectionString.trim() === "") {
     throw new Error("Missing required environment variable: MONGODB_URI");
@@ -26,7 +29,7 @@ export async function connectToDatabase(uri?: string): Promise<typeof mongoose> 
     .connect(connectionString, {
       bufferCommands: false,
       maxPoolSize: 5,
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: options.serverSelectionTimeoutMS ?? 5000,
     })
     .then((m) => m)
     .catch((error: unknown) => {

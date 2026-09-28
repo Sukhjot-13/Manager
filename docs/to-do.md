@@ -5,7 +5,7 @@
 
 ## 2026-09-28 — Full build P0 → P5 + hardening
 
-**Verification:** `npm run verify` → lint clean, `tsc --noEmit` clean, **329 tests green**,
+**Verification:** `npm run verify` → lint clean, `tsc --noEmit` clean, **337 tests green**,
 production build clean. `npm run test:e2e` → **57/57 checks** against a real production server
 backed by a real MongoDB (login, projects, keys, log ingest, viewer, trace view, CSV export,
 vault reveal + audit, analytics ingest + rollups, tracker, SDK download, kill switches, users,
@@ -53,6 +53,10 @@ role isolation, logout).
     returned the wrong (less accurate) error codes.
 13. Duplicate mongoose index declarations on `logs.ts` / `events.ts` / `secret_audit.ts`.
 14. `globals.css` forced Arial over the Geist fonts, and a `color-scheme` rule overrode itself.
+15. **First run was a bare 500**: with no `.env.local` the login route threw and returned an empty
+    500, so a fresh clone looked broken for no stated reason. Added `lib/readiness.ts`, a readiness
+    gate on login (503 + the exact missing variable names), a setup notice on `/login`, and
+    `/api/ping` now reports `ok/setup/database/missingEnv` (names only, never values).
 
 ### You must do these two things (they need your accounts, not the code)
 
