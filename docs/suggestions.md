@@ -4,6 +4,10 @@
 > **open/parked items only**, plus the closed security/audit log.
 
 ## 🟢 Improvements
+- 2026-09-29 — **Implemented: reusable integration guide.** README now covers key placement,
+  JS/TS vendoring, static public env reads, isolated request traces, serverless completion,
+  independent analytics, verification and troubleshooting. Integrate-page examples also
+  stop using expired timestamps and correct server-only initialization and field/rate caps.
 - 2026-09-28 — **Add CI**: a GitHub Actions workflow running `npm run verify` (lint + tsc +
   tests + build) and `npm audit --audit-level=high`, plus `npm run test:e2e` on a schedule, so
   the classes of bug fixed on 2026-09-28 (see `to-do.md`) can't silently return.

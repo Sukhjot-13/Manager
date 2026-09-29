@@ -3,8 +3,8 @@
 > Status: **P0–P5 complete** (2026-09-28). Spec: [`docs/plan.md`](./plan.md). Open items: [`docs/to-do.md`](./to-do.md).
 > This is the live inventory (file → purpose → functions) — update it on every change.
 > Inventory audit 2026-09-28: full scan of all 134 source files (`.ts`/`.tsx`/`.mjs`) plus config,
-> assets and docs. Verification: `npm run verify` (lint + tsc + 337 tests + build) and
-> `npm run test:e2e` (57 checks against a real production server + real MongoDB).
+> assets and docs. Latest verification 2026-09-29: `npm run verify` (lint + tsc + 382 tests + build) and
+> `npm run test:e2e` (63 checks against a real production server + real MongoDB).
 
 ## Environment Variables
 
@@ -21,6 +21,23 @@
 | `CREATE_USER_EMAIL` / `CREATE_USER_NAME` / `CREATE_USER_PASSWORD` / `CREATE_USER_ROLE` | Inputs for `scripts/create-user.ts` — never hardcoded in the file | `scripts/create-user.ts` |
 
 `.env*` is git-ignored (`.env.example` is the only tracked env file; no `.env` exists in git history).
+
+### Consuming-app configuration (README examples)
+
+These variables belong to apps integrating with Manager, rather than Manager itself.
+`README.md` documents `MANAGER_ENDPOINT`, `MANAGER_APP_ID`, `MANAGER_LOG_KEY` for the
+server helper, and literal `NEXT_PUBLIC_MANAGER_ENDPOINT`, `NEXT_PUBLIC_MANAGER_APP_ID`,
+`NEXT_PUBLIC_MANAGER_CLIENT_KEY`, `NEXT_PUBLIC_MANAGER_ANALYTICS_KEY` reads for the browser
+provider. Missing channel configuration disables that channel. Server keys remain private;
+the client and analytics keys are deliberately public, kind-scoped ingest credentials.
+
+## Integration documentation
+
+| File | Purpose | Functions |
+|---|---|---|
+| `README.md` | Setup, key matrix, JS/TS SDK download, server/browser separation, request-completion delivery, analytics, raw HTTP, end-to-end verification and troubleshooting. Examples reflect the current ingest contract. | Embedded examples: `getManagerLogger` caches optional server initialization; `withManagerLogs` isolates request traces, logs uncaught exceptions and schedules `after` flushing; wrapped `GET` demonstrates route usage; `ManagerProvider` initializes browser capture once and installs analytics independently. |
+| `docs/architecture.md` | Maintained file/function and environment inventory. | None (documentation). |
+| `docs/suggestions.md` | Dated improvements, findings and resolutions. | None (documentation). |
 
 ## Application Files
 
@@ -122,7 +139,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/(dash)/projects/[slug]/logs/page.tsx` + `components/logs/log-viewer.tsx` | All/Server/Client tabs, filters, trace view, error grouping, live tail, detail drawer, exports. Trace rows use memoized `chronologicalLogs` for oldest-first journeys and nonnegative gaps; ordinary log feeds and API cursors keep newest-first ordering. | `LogViewer` |
 | `lib/logTimeline.ts` | Orders a copy of mixed client/server rows by timestamp then ID; preserves the paginated data for normal feeds and cursors | `chronologicalLogs` |
 | `tests/unit/log-timeline.test.ts` | Mixed-source chronological ordering, timestamp ties, positive gaps, input immutability, empty/single timelines | — |
-| `app/(dash)/projects/[slug]/integrate/page.tsx` + `components/logs/integrate-panel.tsx` | SDK install command + init snippet | `IntegratePanel` |
+| `app/(dash)/projects/[slug]/integrate/page.tsx` + `components/logs/integrate-panel.tsx` | SDK install command, server-only request-child example with explicit flush, timestamp-free HTTP probe and accurate key/field/rate-limit contract. Keys are pasted into tab state and never persisted. | `IntegratePanel`; nested `copy` handles clipboard feedback; embedded `GET` example adopts bounded request traces and flushes in `finally`. |
 | `app/(dash)/projects/[slug]/analytics/page.tsx` + `components/analytics/*` | Range switcher, charts, breakdowns, active-now, ingest toggle | `ProjectAnalytics`, `TrafficChart`, `Breakdown`, `TrackerSnippet` |
 | `app/(dash)/projects/[slug]/analytics/setup/page.tsx` | Tracker embed snippet with masked key | page |
 | `app/(dash)/analytics/page.tsx` + `components/analytics/overview.tsx` | Cross-project analytics | `Overview` |
@@ -177,7 +194,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/integration/ingest.test.ts` | Log ingest hardening matrix + viewer/export/SDK download |
 | `tests/integration/analytics.test.ts` | Event ingest hardening, rollups, summary authz, tracker route |
 | `tests/integration/tracker-route.test.ts` | `/t.js` public path, immutable cache, ETag/304, masked embed snippet |
-| `tests/e2e/smoke.mjs` | Builds and boots a real production server against a real MongoDB; 57 checks across the whole product (`npm run test:e2e`) |
+| `tests/e2e/smoke.mjs` | Builds and boots a real production server against a real MongoDB; 63 checks across the whole product (`npm run test:e2e`) |
 | `vitest.config.mts` | Vitest config (`@/` alias, node env, `tests/**/*.test.ts`) |
 | `scripts/create-user.ts` | CLI user creation (`npm run create-user`) |
 | `scripts/dev-local-db.mjs` | Dev-only local MongoDB launcher for testing without Atlas: data in `.data/mongo/db` (persists across restarts), then runs `next dev`/`next start` with `MONGODB_URI` injected. Refuses to run on Vercel and refuses production mode unless `MANAGER_ALLOW_LOCAL_DB=1` | _(dev helper)_ |

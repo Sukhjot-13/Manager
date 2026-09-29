@@ -4,7 +4,7 @@ One web app to manage every project: registry, centralized logging, an encrypted
 vault, GitHub links, and analytics. Single owner (plus optional extra users with roles),
 Next.js App Router, MongoDB Atlas, deployed on Vercel Hobby.
 
-> **Status: P0–P5 built.** 338 unit/integration tests + a 57-check production smoke test
+> **Status: P0–P5 built.** 382 unit/integration tests + a 63-check production smoke test
 > (`npm test`, `npm run test:e2e`).
 > Specification: [`docs/plan.md`](docs/plan.md) · inventory: [`docs/architecture.md`](docs/architecture.md)
 
@@ -70,7 +70,7 @@ If anything above is missing, the app tells you exactly what instead of failing 
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | **Single test entry point** — all unit + integration suites (Vitest + in-memory MongoDB) |
 | `npm run test:watch` | Vitest in watch mode |
-| `npm run test:e2e` | Builds, boots a real production server against a real MongoDB and walks the whole product (57 checks) |
+| `npm run test:e2e` | Builds, boots a real production server against a real MongoDB and walks the whole product (63 checks) |
 | `npm run verify` | lint → typecheck → test → build |
 | `npm run build:logger` | Regenerates `packages/logger/dist/` from `packages/logger/src` |
 | `npm run create-user` | Creates/updates a user (`CREATE_USER_*` env vars or interactive prompts) |
@@ -85,105 +85,260 @@ If anything above is missing, the app tells you exactly what instead of failing 
 
 ## Wiring your projects in
 
-Everything below lives in each project's **Integrate** page in the app too, with your real
-key filled in and copy buttons.
+Start by creating a project in Manager, then open **Project → API keys**. Copy each key
+when it is created: Manager stores a hash and cannot show the full key again. The
+**Integrate** page provides copy buttons after you paste your key into that tab.
 
-### 1. Logs — vendor the SDK
-
-Create a **server** key (`mlk_…`, Node/server code) or **client** key (`mck_…`, browser code)
-under *Project → API keys*. Keys are shown in full exactly once.
-
-```bash
-curl -fsSL -H "x-manager-key: mlk_…" \
-  "https://your-manager-host/api/sdk/logger" -o src/lib/logger.ts
-```
-
-The downloaded file is the whole SDK: zero dependencies, zero registry, types included, and a
-usage header so the file explains itself inside your repo.
-
-```ts
-import { initLogger } from "./lib/logger";
-
-const log = initLogger({
-  endpoint: "https://your-manager-host",
-  appId: "my-store",                    // must match the Manager project
-  apiKey: process.env.MANAGER_LOG_KEY,  // never hardcode
-  environment: "production",
-  release: process.env.GIT_SHA,
-  captureConsole: ["warn", "error"],
-  captureGlobalErrors: true,
-  redactKeys: ["password", "token", "authorization"],
-  sampleRate: { debug: 0.1 },
-});
-
-log.info("order_created", { orderId });
-await log.error("payment_failed", { code: "card_declined" });
-
-const req = log.child({ requestId });   // child logger with bound context
-req.info("checkout_step", { step: 3 });
-
-log.time("db_query");
-await runQuery();
-const ms = log.timeEnd("db_query");    // timing entry with durationMs
-
-// Server: adopt the browser's trace so both sides show up in one view
-const trace = log.withTrace(req.headers.get("x-trace-id") ?? log.newTrace());
-trace.info("query_start", { sql });
-
-await log.flush();                     // Node/browser also flush on shutdown automatically
-```
-
-What you get: isomorphic, levels `trace|debug|info|warn|error|fatal`, child loggers, timers,
-batching, backoff + retry, offline queue, console + uncaught-error + unhandled-rejection +
-fetch/XHR auto-capture, rich auto-context, trace correlation, redaction, error fingerprinting,
-and a self rate limiter so a hot loop cannot flood the store.
-
-#### Tuning delivery (server code)
-
-| Option | Default | Use it to |
+| Key | Where it belongs | What it can write |
 |---|---|---|
-| `flushIntervalMs` | 5000 | Shorten the batch window. A burst of N lines costs one request per window, not N. 250 ms is a good server value; 100–250 ms if you want entries visible almost immediately. |
-| `maxLogsPerSecond` | 500 | Raise/lower this client's self-protection ceiling. The authoritative limit is per API key on the server (Settings → kill switches, plus the per-key rate limit), so this only guards against a runaway loop inside one process. |
-| `captureProcessErrors` | `false` | Attach `process.on('uncaughtException'/'unhandledRejection')`. Leave off under Next.js/Nest/Fastify — they own process error handling, and extra listeners there stop delivery. Log from your error boundary instead. |
+| `mlk_…` | Server environment only; never `NEXT_PUBLIC_`, HTML, or browser code | Server logs |
+| `mck_…` | Browser configuration; intentionally public | Client logs only |
+| `mak_…` | Browser tracker; intentionally public | Analytics events only |
 
-Anything the client has to drop is reported to Manager as a `warn` entry named
-`manager_sdk_dropped_entries` (with `dropped` and `totalDropped`), so a client that outran its
-own ceiling is visible rather than silently lossy.
+The key selects the destination project and log source. Use its project slug as `appId`
+for consistent SDK context; `appId` does not grant access or override the key's project.
+`endpoint` is Manager's origin (for example `https://your-manager-host`), not the consuming
+app's URL and not `/api/ingest/logs`.
 
-### 2. Logs — plain HTTP (any language)
+### 1. Download the SDK and set configuration
+
+Use either a server or client log key to download. An analytics key cannot download it.
 
 ```bash
-curl -X POST "https://your-manager-host/api/ingest/logs" \
-  -H "content-type: application/json" \
-  -H "x-api-key: mlk_…" \
-  -d '{"logs":[{"level":"info","message":"job_done","ts":1700000000000,"meta":{"rows":12}}]}'
+mkdir -p src/lib/manager
+# JavaScript apps:
+curl -fsSL -H "x-manager-key: YOUR_LOG_KEY" \
+  "https://your-manager-host/api/sdk/logger?format=js" -o src/lib/manager/sdk.js
+# TypeScript apps (choose this instead):
+curl -fsSL -H "x-manager-key: YOUR_LOG_KEY" \
+  "https://your-manager-host/api/sdk/logger" -o src/lib/manager/sdk.ts
 ```
 
-### 3. Analytics — one script tag
+The file is the complete SDK, with zero runtime dependencies or registry installation.
+Commit it to the consuming app. SDK fixes reach existing apps only after you download
+the updated file from the updated Manager deployment and rebuild the app.
 
-Create an **analytics** key (`mak_…`) and paste the tag from *Project → Integrate* (or
-*Analytics → Install tracker*):
+For Next.js, put the following in the consuming app's environment. Replace placeholders
+with keys from the same Manager project; omit any channel you do not want enabled.
+
+```dotenv
+MANAGER_ENDPOINT=https://your-manager-host
+MANAGER_APP_ID=my-store
+MANAGER_LOG_KEY=mlk_REPLACE_ME
+
+NEXT_PUBLIC_MANAGER_ENDPOINT=https://your-manager-host
+NEXT_PUBLIC_MANAGER_APP_ID=my-store
+NEXT_PUBLIC_MANAGER_CLIENT_KEY=mck_REPLACE_ME
+NEXT_PUBLIC_MANAGER_ANALYTICS_KEY=mak_REPLACE_ME
+```
+
+Server and browser initialization must live in separate modules. Next.js only inlines
+literal accesses such as `process.env.NEXT_PUBLIC_MANAGER_CLIENT_KEY`; dynamic lookups
+like `process.env[name]` will silently leave browser configuration undefined. Restart
+development after env changes; rebuild/redeploy for public env changes in production.
+
+### 2. Server logs and request completion
+
+Create `src/lib/manager/server.js` (or `.ts`, adding types). This example is for Next.js
+App Router on the Node runtime. Import it only from server code:
+
+```js
+import { after } from "next/server";
+import { initLogger, traceIdFromHeaders } from "./sdk.js";
+
+export function getManagerLogger() {
+  const endpoint = process.env.MANAGER_ENDPOINT;
+  const appId = process.env.MANAGER_APP_ID;
+  const apiKey = process.env.MANAGER_LOG_KEY;
+  if (!endpoint || !appId || !apiKey) return null;
+  return (globalThis.__managerServerLogger ??= initLogger({
+    endpoint, appId, apiKey,
+    environment: process.env.NODE_ENV,
+    captureConsole: null,
+    captureGlobalErrors: false,
+    captureProcessErrors: false,
+    captureFetch: false,
+    flushIntervalMs: 250,
+    redactKeys: ["password", "token", "authorization"],
+  }));
+}
+
+export function withManagerLogs(handler) {
+  return async (request, context) => {
+    const root = getManagerLogger();
+    const traceId = traceIdFromHeaders(request.headers) || crypto.randomUUID();
+    const requestLog = root?.withTrace(traceId);
+    try {
+      return await handler(request, context, requestLog);
+    } catch (error) {
+      requestLog?.error("Unhandled route error", { error });
+      throw error; // Keep the app's existing error response policy.
+    } finally {
+      if (root) after(() => root.flush());
+    }
+  };
+}
+```
+
+Wrap every exported route method, including auth, webhooks, PDF and early-return paths:
+
+```js
+// src/app/api/example/route.js
+import { withManagerLogs } from "@/lib/manager/server";
+
+export const GET = withManagerLogs(async (request, context, log) => {
+  log?.info("example_requested", { route: "/api/example" });
+  return Response.json({ ok: true });
+});
+```
+
+If a handler catches an exception and returns a response itself, log the exception there
+with `log?.error("operation_failed", { error })`. Native `Error` objects and serialized
+objects containing `stack` produce a top-level, redacted stack. A generic message alone
+cannot preserve the exception stack.
+
+Log methods enqueue and return `void`: `await log.error(...)` does **not** flush. `after`
+keeps delivery alive after the response, including thrown errors and early returns.
+A timer or initialization only in `instrumentation.js` is insufficient on serverless.
+For plain Node jobs, omit the Next.js wrapper and `await log.flush()` in the job's
+`finally` before exit. Flush at request/job completion, rather than after every line.
+
+Use `root.withTrace(incomingTrace)` for a request-local child. Avoid `root.newTrace()`
+or `root.setContext()` to store request state on the shared root: concurrent requests
+can overwrite each other's context. Pass the child through your services, or bind it
+using Node `AsyncLocalStorage` in a server-only module.
+
+### 3. Browser logs and analytics
+
+Create `src/lib/manager/ManagerProvider.jsx` and mount it once in your root layout.
+For TypeScript, use `.tsx`, typed window globals, and extensionless SDK imports.
+
+```jsx
+"use client";
+
+import { useEffect } from "react";
+import { initLogger } from "./sdk.js";
+
+const endpoint = process.env.NEXT_PUBLIC_MANAGER_ENDPOINT;
+const appId = process.env.NEXT_PUBLIC_MANAGER_APP_ID;
+const clientKey = process.env.NEXT_PUBLIC_MANAGER_CLIENT_KEY;
+const analyticsKey = process.env.NEXT_PUBLIC_MANAGER_ANALYTICS_KEY;
+
+export default function ManagerProvider() {
+  useEffect(() => {
+    if (endpoint && appId && clientKey && !window.__managerClientLogger) {
+      window.__managerClientLogger = initLogger({
+        endpoint, appId, apiKey: clientKey,
+        captureConsole: ["warn", "error"],
+        captureGlobalErrors: true,
+        captureFetch: true,
+        redactKeys: ["password", "token", "authorization"],
+      });
+    }
+    // Analytics is independent: do not require a client log key.
+    if (endpoint && appId && analyticsKey && !document.getElementById("manager-tracker")) {
+      const script = document.createElement("script");
+      script.id = "manager-tracker";
+      script.async = true;
+      script.src = `${endpoint.replace(/\/+$/, "")}/t.js?v=1`;
+      script.dataset.app = appId;
+      script.dataset.key = analyticsKey;
+      document.head.appendChild(script);
+    }
+  }, []);
+  return null;
+}
+```
+
+The window cache prevents duplicate listeners/uploads under Strict Mode or hot reload.
+Browser capture includes console warnings/errors, uncaught errors, rejected promises and
+fetch outcomes. Explicit messages use `window.__managerClientLogger?.info("checkout_opened")`.
+Wrapped same-origin fetch requests carry `x-trace-id`; adopt that header on the server to
+show both sources in Manager's combined journey. Cross-origin fetch tracing needs its
+own deliberate CORS/header setup.
+
+For any other browser framework, initialize the SDK once in its client bootstrap and
+use its public configuration mechanism. For static sites, analytics alone is one tag:
 
 ```html
 <script async src="https://your-manager-host/t.js?v=1"
-        data-app="my-store" data-key="mak_live_…"></script>
+        data-app="my-store" data-key="mak_REPLACE_ME"></script>
 ```
 
-It auto-tracks pageviews (SPA history changes included), click targets as
-`[path] element-text (#id .class)`, referrers and UTM params, and batches with
-`navigator.sendBeacon`. Custom events: `window.__mgr("event", "signup_clicked", { plan: "pro" })`.
-Visitor ids are HMAC-derived from IP + UA, cookie-free, and rotate daily.
+The tracker records SPA pageviews, click targets, referrers and UTM params, and batches
+with `navigator.sendBeacon`. After it loads, send custom events with
+`window.__mgr?.("event", "signup_clicked", { plan: "pro" })`. Visitor ids are HMAC-derived
+from IP + UA, cookie-free, and rotate daily. On apps with CSP, allow Manager's origin
+in `script-src` for the tracker and `connect-src` for log/event uploads.
+
+### 4. Plain HTTP logs (any language)
+
+```bash
+curl -i -X POST "https://your-manager-host/api/ingest/logs" \
+  -H "content-type: application/json" \
+  -H "x-api-key: YOUR_SERVER_LOG_KEY" \
+  -d '{"logs":[{"level":"info","message":"integration_probe","meta":{"rows":12}}]}'
+```
+
+Omitting `ts` uses Manager's current time. If you supply it, use a current epoch in
+milliseconds or ISO timestamp. Check the response's `accepted` and `rejected` counts,
+not just HTTP 200. The same endpoint accepts browser logs with a client key; never send
+`source` or a project id in the entry. For analytics HTTP clients, use
+`POST /api/ingest/events` with an analytics key and an `events` array.
+
+### 5. Verify before calling the integration complete
+
+1. Send a uniquely named server info message and browser console warning/error;
+   confirm each appears under the intended project and source.
+2. In an isolated test route, throw `new Error("integration_probe_<unique-id>")`.
+   Confirm the app's expected error response and Manager's full exception stack.
+   Also exercise a browser uncaught error and rejected promise.
+3. Use a same-origin browser fetch to that route; confirm client and server rows share
+   a trace and the combined journey reads chronologically.
+4. Put **fake** password/token values in test metadata and confirm redaction. Verify
+   repeated errors remain visible after another flush and separate traces stay separate.
+5. Confirm a pageview and a custom event with only the analytics key configured.
+   Wrong-kind, unknown and revoked keys must return 401 at their ingest endpoints.
+6. Unset optional Manager configuration: the app should still work. Remove diagnostic
+   routes/buttons after checking, and never spend AI credits or send real payments/emails
+   just to prove log delivery.
+
+### Delivery tuning and troubleshooting
+
+| Option | Default | Use it to |
+|---|---|---|
+| `flushIntervalMs` | 5000 ms | Server example uses 250 ms to batch bursts promptly; request-completion flushing is still required. |
+| `maxLogsPerSecond` | 500 | Guards runaway loops locally; does not replace Manager's per-key limits. |
+| `captureProcessErrors` | `false` | Leave off under server frameworks; log in your handler/error boundary instead. |
+
+Anything the client has to drop is reported to Manager as a `warn` entry named
+`manager_sdk_dropped_entries` with `dropped` and `totalDropped`. SDK transport is best
+effort: awaiting `flush()` attempts delivery, but is not an acknowledgement of durable
+storage. Keep normal application error handling independent of Manager availability.
+
+| Symptom | Check |
+|---|---|
+| Browser logs missing | Static `NEXT_PUBLIC_` reads, correct `mck_` key, rebuilt public env, network/CSP blockers. |
+| Server logs missing after a successful response | Same cached logger used by routes; `after(() => root.flush())` runs on all exits. |
+| Analytics missing while logs work | Separate `mak_` key, tracker loaded at `/t.js`, no client-key dependency, project/global analytics toggles. |
+| HTTP 200 but no rows | `accepted`/`rejected` counts, current timestamps, key's project, viewer source/level/trace filters. |
+| HTTP 401 | Correct endpoint and key kind; revoked or wrong-project configuration. |
+| HTTP 429 | Honor `Retry-After`, batch messages and reduce volume; inspect ingest limits. |
+| Duplicate browser messages | Multiple SDK instances or providers; initialize once per window. |
+| Old behavior after SDK fix | Re-download the vendored SDK from the updated Manager deployment and rebuild. |
 
 ### Integration contract
 
 | Rule | Value |
 |---|---|
 | Key kinds | `mlk_` server logs · `mck_` browser logs · `mak_` analytics only (an analytics key can never post logs) |
-| Source scoping | a server key may only write `source:"server"`, a client key only `source:"client"` |
+| Source scoping | Manager derives `server`/`client` from the key; callers must not send `source` |
 | Batch limit | 100 entries per request |
-| Field caps | `message` ≤ 1 KB · `meta` ≤ 8 KB (JSON) · whole body ≤ 128 KB |
+| Field caps | `message` ≤ 1,024 characters · `stack` ≤ 8,000 characters · `meta` ≤ 8 KB JSON · body ≤ 128 KB |
 | Timestamps | entries with `ts` older than 24 h or more than 10 min in the future are rejected |
-| Server-stamped | `source`, `ip`, `country`, `hostname`, `pid`, `runtimeVersion`, `rssMb`, `uptimeSec`, `receivedAt` — rejected if you send them |
+| Manager-owned fields | `source`, `ip`, `country`, `receivedAt`, `keyPrefix`, `projectId`, `fingerprint`, `count`, `_id` — rejected in entries |
+| Node context | `hostname`, `pid`, `runtimeVersion`, `rssMb`, `uptimeSec` accepted for server-key logs; rejected for client-key logs |
+| Repeated errors | Bounded SDK `meta.count` hints count occurrences; grouping preserves separate traces and sources |
 | Auth failures | unknown / revoked / mismatched keys always return the same generic `401` |
 | Rate limits | `429` + `Retry-After`; the SDK retries with exponential backoff, raw clients should too |
 | Kill switches | per project (*Overview* / *Analytics*) and global (*Settings*) stop ingest immediately |

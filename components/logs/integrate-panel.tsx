@@ -17,10 +17,10 @@ const FEATURES = [
   "Auto-capture: console levels, uncaught errors, unhandled rejections, fetch/XHR outcomes",
   "Auto-context: URL, referrer, UA, viewport, language, timezone, connection, sessionId, pageId",
   "Server context: hostname, pid, runtime version, RSS, uptime",
-  "Trace correlation: x-trace-id on every wrapped fetch/XHR, merged client+server view",
+  "Trace correlation: x-trace-id on same-origin wrapped fetch, merged client+server view",
   "Redaction of configured keys before anything leaves the app",
   "Error fingerprinting so a hot loop collapses to one grouped row with a counter",
-  "Internal rate limiter (~50 logs/s) and hard payload caps",
+  "Internal rate limiter (500 logs/s by default) and hard payload caps",
   "Never logs its own transport failures; sendBeacon/keepalive flush on unload",
 ];
 
@@ -29,13 +29,13 @@ const CUSTOM_EVENT_SNIPPET =
 
 const CONTRACT = [
   "Key kinds: mlk_ = server logs, mck_ = browser logs, mak_ = analytics only. An analytics key can never post logs.",
-  "A server key may only write source:\"server\" rows and a client key only source:\"client\" — a leaked browser key cannot forge server logs.",
-  "Batch limit 100 entries; message ≤ 1 KB; meta ≤ 8 KB JSON; whole request body ≤ 128 KB.",
+  "Manager derives source from the key: server keys write server logs, client keys write client logs. Never send source or projectId in an entry.",
+  "Batch limit 100 entries; message ≤ 1,024 characters; stack ≤ 8,000 characters; meta ≤ 8 KB JSON; whole request body ≤ 128 KB.",
   "Client timestamps: entries older than 24 h or more than 10 min in the future are rejected (clock-skew guard).",
   "Unknown, revoked or mismatched keys always get the same generic 401 — never a hint about which key exists.",
   "429 + Retry-After when a key exceeds its rate limit; the SDK retries with backoff, raw HTTP clients should too.",
-  "ip, country, hostname, pid, runtime, receivedAt and source are stamped by the server and are rejected if you send them.",
-  "The SDK rate-limits itself (~50 logs/s) and drops what exceeds it, so a hot loop cannot flood the store.",
+  "Manager owns source, ip, country, receivedAt, keyPrefix, projectId, fingerprint, count and _id. Node runtime fields are allowed only with a server key.",
+  "The SDK rate-limits itself (500 logs/s by default) and reports dropped entries as manager_sdk_dropped_entries.",
 ];
 
 export function IntegratePanel({
@@ -50,44 +50,46 @@ export function IntegratePanel({
   const { push } = useToast();
   const [apiKey, setApiKey] = useState("");
 
-  const install = `curl -fsSL -H "x-manager-key: ${apiKey || "<project-key>"}" \\
+  const install = `mkdir -p src/lib
+curl -fsSL -H "x-manager-key: ${apiKey || "<project-key>"}" \\
   "${origin}/api/sdk/logger" -o src/lib/logger.ts`;
 
-  const init = `import { initLogger } from "./lib/logger";
+  const init = `// Server code only. Browser code needs a separate mck_ key and public config.
+import { initLogger, traceIdFromHeaders } from "./lib/logger";
 
 const log = initLogger({
   endpoint: "${origin}",
   appId: "${projectSlug}",
-  apiKey: process.env.MANAGER_LOG_KEY ?? "${apiKey || "<project-key>"}",
+  apiKey: process.env.MANAGER_LOG_KEY!,
   environment: process.env.NODE_ENV ?? "development",
   release: process.env.GIT_SHA ?? "dev",
-  captureConsole: ["warn", "error"],
-  captureGlobalErrors: true,
-  captureFetch: typeof window !== "undefined",
+  captureConsole: null,
+  captureGlobalErrors: false,
+  captureProcessErrors: false,
+  captureFetch: false,
+  flushIntervalMs: 250,
   redactKeys: ["password", "token", "authorization"],
-  sampleRate: { debug: 0.1 },
 });
 
-log.info("app_started", { build: "1.4.2" });
-log.error("payment_failed", { code: "card_declined" });
-
-const req = log.child({ requestId });
-req.info("order_created", { orderId });
-
-log.time("db_query");
-await runQuery();
-const dbMs = log.timeEnd("db_query");
-
-// Server: adopt the browser trace so both sides show up together.
-const traceId = log.withTrace(req.headers.get("x-trace-id") ?? log.newTrace());
-traceId.info("query_start", { sql: "select 1" });
-
-await log.flush();`;
+// Reuse this root logger. Give each request its own child, never mutate the root trace.
+export async function GET(request: Request) {
+  const traceId = traceIdFromHeaders(request.headers) || crypto.randomUUID();
+  const requestLog = log.withTrace(traceId);
+  try {
+    requestLog.info("integration_probe", { route: new URL(request.url).pathname });
+    return Response.json({ ok: true });
+  } catch (error) {
+    requestLog.error("operation_failed", { error });
+    throw error;
+  } finally {
+    await log.flush(); // Plain HTTP/Node pattern; Next.js can use after(() => log.flush()).
+  }
+}`;
 
   const http = `curl -X POST "${origin}/api/ingest/logs" \\
   -H "content-type: application/json" \\
   -H "x-api-key: ${apiKey || "<project-key>"}" \\
-  -d '{"logs":[{"level":"info","message":"job_done","ts":1700000000000}]}'`;
+  -d '{"logs":[{"level":"info","message":"integration_probe"}]}'`;
 
   const copy = async (value: string, label: string): Promise<void> => {
     try {
