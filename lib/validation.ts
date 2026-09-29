@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LINK_TYPES, PROJECT_STATUSES } from "@/lib/db/projects";
+import { LINK_TYPES, PROJECT_STATUSES } from "@/lib/projectTypes";
 import { ENVIRONMENTS } from "@/lib/db/secrets";
 import { KEY_KINDS } from "@/lib/db/apikeys";
 import { LOG_LEVELS } from "@/lib/db/logs";

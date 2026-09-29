@@ -1,16 +1,11 @@
 import mongoose, { Schema } from "mongoose";
+import { LINK_TYPES, PROJECT_STATUSES } from "@/lib/projectTypes";
 
-export const PROJECT_STATUSES = [
-  "idea",
-  "building",
-  "live",
-  "paused",
-  "archived",
-] as const;
-export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
-
-export const LINK_TYPES = ["github", "live", "docs", "other"] as const;
-export type LinkType = (typeof LINK_TYPES)[number];
+// Re-exported so existing server modules keep importing them from here. Client components
+// must import from @/lib/projectTypes instead: anything reaching this file in a browser
+// bundle pulls in mongoose and crashes at module evaluation.
+export { LINK_TYPES, PROJECT_STATUSES } from "@/lib/projectTypes";
+export type { LinkType, ProjectStatus } from "@/lib/projectTypes";
 
 const linkSchema = new Schema(
   {

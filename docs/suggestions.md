@@ -64,6 +64,21 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
   a plain `process.env[...]` lookup reappears in the client-facing block.
 
 ### Closed — found in production on the first deploy (2026-09-29)
+- **High — the Projects page crashed in the browser before rendering anything.**
+  `TypeError: Cannot read properties of undefined (reading 'Project')` at module evaluation.
+  `project-list.tsx` and `project-form.tsx` imported `PROJECT_STATUSES` / `LINK_TYPES` from
+  `lib/db/projects.ts`, which also builds the mongoose model at module scope. That dragged
+  mongoose into the browser bundle, where Next.js substitutes an empty stub, so
+  `mongoose.models.Project` threw before React ever rendered. The client only ever wanted a
+  list of status strings. The constants now live in `lib/projectTypes.ts`, which imports
+  nothing, and `tests/unit/client-bundle-boundary.test.ts` walks the import graph of every
+  `"use client"` file and fails if mongoose is reachable — value imports only, since
+  `import type` is erased and would otherwise produce half a dozen false alarms. The boundary
+  test was confirmed to fail when the old import is restored. The built client bundle now
+  contains no mongoose at all.
+  **Pattern worth remembering: a shared constants module must not live in a file that also
+  builds a server model.** Any value import from such a file is a page-killing bug that no
+  server-side test can see, because the failure is in the browser's module graph.
 - **High — the keys screen 400'd on a brand-new install.** The first fix made the project
   selector conditional on `projects.length > 0`, so with no projects yet — exactly the state of
   a fresh database — the form sent no `projectId` and the server answered a bare 400 that said

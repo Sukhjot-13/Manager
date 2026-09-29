@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { Copy, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { PermissionGate } from "@/components/permission-gate";
 import { Badge } from "@/components/ui/badge";
@@ -114,6 +115,10 @@ export function KeysPanel({
   // "project not required" silently sent a request with no projectId and surfaced a bare
   // 400 from the server; the honest state is "there is nothing to issue a key for yet".
   const projectRequired = showProjectColumn;
+  // A key always belongs to a project, so with none there is nothing to issue. Say so with
+  // a link rather than a disabled control: a disabled button only explains itself through a
+  // title tooltip, which no touch device ever shows, so on a phone it is just dead.
+  const noProjectsYet = showProjectColumn && projects.length === 0;
 
   const create = useCallback(async (): Promise<void> => {
     const built = buildKeyCreateBody({
@@ -289,21 +294,25 @@ export function KeysPanel({
           shown in full exactly once.
         </span>
         <PermissionGate permission="keys.manage">
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            disabled={showProjectColumn && projects.length === 0}
-            title={
-              showProjectColumn && projects.length === 0
-                ? "Create a project first — every key is issued for one"
-                : undefined
-            }
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus size={14} />
-            New key
-          </Button>
+          {noProjectsYet ? (
+            <Link
+              href="/projects"
+              className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-300 px-3 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              <Plus size={14} />
+              Create a project to issue keys
+            </Link>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus size={14} />
+              New key
+            </Button>
+          )}
         </PermissionGate>
       </div>
 

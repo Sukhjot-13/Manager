@@ -11,7 +11,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { PermissionGate } from "@/components/permission-gate";
 import { ProjectForm } from "@/components/projects/project-form";
-import { PROJECT_STATUSES } from "@/lib/db/projects";
+import { PROJECT_STATUSES } from "@/lib/projectTypes";
 import type { ProjectSummary } from "@/lib/projects";
 
 export function ProjectList({ projects }: { projects: ProjectSummary[] }) {

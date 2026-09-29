@@ -45,6 +45,7 @@
 | `lib/db/secrets.ts` | `secrets` (unique per project+env+key) and `secret_audit` (180d TTL) | `SecretModel`, `SecretAuditModel`, `ENVIRONMENTS`, types `Environment`/`SecretDoc`/`SecretAuditDoc` |
 | `lib/db/ops.ts` | `daily_stats` rollups, `rate_limits` (unique `(key, windowStart)`), `app_settings`, `login_attempts`, `audit_events` | `DailyStatModel`, `RateLimitModel`, `AppSettingModel`, `LoginAttemptModel`, `AuditEventModel`, `APP_SETTING_KEYS`, `LOG_TTL_DAYS`, `EVENT_TTL_DAYS`, `SECRET_AUDIT_TTL_DAYS`, `RATE_LIMIT_WINDOW_SECONDS` |
 | `lib/projects.ts` | Project service (slugify, unique slugs, regex-escaped search, cascade delete) | `slugify`, `listProjects`, `getProjectBySlug`, `getProjectById`, `createProject`, `updateProject`, `deleteProject`, `serializeProject`, types `ProjectInput`/`ProjectListFilters`/`ProjectSummary` |
+| `lib/projectTypes.ts` | `PROJECT_STATUSES`, `LINK_TYPES` + types | the only project vocabulary the browser may import; deliberately imports nothing, because a value import from a module that also builds a mongoose model crashes the page in the browser |
 | `lib/keyForm.ts` | `buildKeyCreateBody`, `keyCreateFailureMessage` | decides what the create-key form may send; refuses a nameless key, an empty project list, or an unnamed project before the request is made |
 | `lib/keyManagement.ts` | API key lifecycle | `createApiKey`, `listApiKeys`, `listAllApiKeys`, `revokeApiKey`, `deleteApiKey`, `generateVerifiableApiKey`, `isVerifiablePrefix`, `maskKeyPrefix`, `KeyError`, types `MaskedApiKey`/`CreatedApiKey`/`KeyInput` |
 | `lib/apiKeys.ts` | Key generation, constant-time verification, kind→scope rules | `generateApiKey`, `verifyApiKey`, `hashKey`, `keyPrefixOf`, `kindCanWriteLogs`, `kindCanWriteEvents`, `sourceForKind`, `redactKey`, type `VerifiedKey`/`GeneratedKey` |
@@ -152,6 +153,8 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/unit/csp.test.ts` | Nonce format/uniqueness, every locked-down directive, dev/prod differences |
 | `tests/unit/security-headers.test.ts` | `next.config.ts` header regression suite |
 | `tests/unit/api-ping.test.ts` | Health route contract + no secret values in the payload |
+| `tests/unit/client-bundle-boundary.test.ts` | Walks the import graph of every `"use client"` file and fails if mongoose is reachable through a value import; also asserts `lib/projectTypes.ts` imports nothing |
+| `tests/unit/key-form.test.ts` | The create-key form's rules: a project is always named on the cross-project screen, an empty project list is refused rather than sent, blank ids and names are rejected |
 | `tests/integration/readiness.test.ts` | Unconfigured deployment: missing-var detection, actionable 503 login (never a bare 500), no session cookie, unreachable-DB path, configured path still works |
 | `tests/unit/page-rendering.test.ts` | Landing page must stay `force-dynamic` (nonce cannot be injected into static HTML) |
 | `tests/unit/secrets.test.ts` | `.env` parsing, crypto round-trip/tamper/fresh-IV, masking, permission map |

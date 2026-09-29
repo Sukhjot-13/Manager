@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { LINK_TYPES, PROJECT_STATUSES } from "@/lib/db/projects";
+import { LINK_TYPES, PROJECT_STATUSES } from "@/lib/projectTypes";
 import type { ProjectSummary } from "@/lib/projects";
 
 type LinkDraft = { type: string; url: string; label: string };
