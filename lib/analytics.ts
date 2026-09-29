@@ -90,6 +90,8 @@ export type AnalyticsQuery = {
   range?: string;
   from?: Date | string;
   to?: Date | string;
+  /** Display timezone for day boundaries. Defaults to APP_TZ, then UTC. */
+  timezone?: string;
 };
 
 export type ResolvedRange = {
@@ -494,7 +496,12 @@ export function resolveRange(query: AnalyticsQuery = {}): ResolvedRange {
   }
   const data = parsed.data;
   const range = data.range;
-  const { start, end } = rangeDates(range, data.from, data.to);
+  const { start, end } = rangeDates(
+    range,
+    data.from,
+    data.to,
+    query.timezone ?? process.env.APP_TZ ?? "UTC",
+  );
   const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
   return { range, start, end, days };
 }

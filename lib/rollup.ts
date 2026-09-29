@@ -147,22 +147,117 @@ export async function rollupDay(
   ).exec();
 }
 
+/**
+ * The UTC instant of local midnight in `timeZone` for the local day containing `now`.
+ *
+ * Rollup buckets stay keyed by UTC day (plan §F5: store UTC everywhere), but the
+ * dashboard's "today" must mean the user's today. Without this, an owner in UTC-4 sees
+ * an empty dashboard every evening between 00:00 and 20:00 local time.
+ */
+type ZonedParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+function zonedParts(now: Date, timeZone: string): ZonedParts | null {
+  let formatter: Intl.DateTimeFormat;
+  try {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return null;
+  }
+  const parts = new Map(
+    formatter.formatToParts(now).map((part) => [part.type, part.value]),
+  );
+  const read = (key: "year" | "month" | "day" | "hour" | "minute" | "second"): number =>
+    Number(parts.get(key));
+  const year = read("year");
+  const month = read("month");
+  const day = read("day");
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  return {
+    year,
+    month,
+    day,
+    hour: read("hour") % 24,
+    minute: read("minute"),
+    second: read("second"),
+  };
+}
+
+/** Milliseconds `timeZone` is ahead of UTC at `instant` (east of Greenwich is positive). */
+function zoneOffsetMs(instant: Date, timeZone: string): number | null {
+  const parts = zonedParts(instant, timeZone);
+  if (parts === null) {
+    return null;
+  }
+  const wallAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return wallAsUtc - Math.floor(instant.getTime() / 1000) * 1000;
+}
+
+/**
+ * The UTC instant of local midnight for the day containing `now` in `timeZone`.
+ *
+ * Rollup buckets stay keyed by the UTC day (plan §F5: store UTC everywhere), but the
+ * dashboard's "today" has to mean the user's today. Without this, an owner west of UTC
+ * sees an empty dashboard every evening, and one east of UTC sees tomorrow's data early.
+ */
+export function localDayStartUtc(now: Date, timeZone: string): Date {
+  if (timeZone === "UTC") {
+    return dailyWindowStart(now);
+  }
+  const local = zonedParts(now, timeZone);
+  if (local === null) {
+    return dailyWindowStart(now);
+  }
+  const wallMidnight = Date.UTC(local.year, local.month - 1, local.day, 0, 0, 0);
+  const offset = zoneOffsetMs(new Date(wallMidnight), timeZone);
+  if (offset === null) {
+    return dailyWindowStart(now);
+  }
+  return new Date(wallMidnight - offset);
+}
+
 export function rangeDates(
   range: "today" | "7d" | "30d" | "custom",
   from?: Date,
   to?: Date,
+  timeZone = "UTC",
 ): { start: Date; end: Date } {
-  const today = dailyWindowStart(new Date());
+  const now = new Date();
   if (range === "today") {
-    return { start: today, end: addDays(today, 1) };
+    const start = localDayStartUtc(now, timeZone);
+    return { start, end: addDays(start, 1) };
   }
   if (range === "custom" && from !== undefined && to !== undefined) {
-    const start = dailyWindowStart(from);
-    const end = dailyWindowStart(addDays(to, 1));
-    return { start, end };
+    const start = localDayStartUtc(from, timeZone);
+    return { start, end: localDayStartUtc(addDays(to, 1), timeZone) };
   }
   const days = range === "30d" ? 30 : 7;
-  return { start: addDays(today, -(days - 1)), end: addDays(today, 1) };
+  const anchor = localDayStartUtc(now, timeZone);
+  return { start: addDays(anchor, -(days - 1)), end: addDays(anchor, 1) };
 }
 
 export type DailyRollup = {
@@ -204,9 +299,12 @@ export async function readRollups(
   end: Date,
 ): Promise<DailyRollup[]> {
   await connectToDatabase();
+  // Inclusive of the UTC bucket that `end` falls inside, because a display-timezone day
+  // can straddle two or three UTC buckets.
+  const lastKey = utcDateKey(new Date(end.getTime() - 1));
   const rows = await DailyStatModel.find({
     projectId,
-    date: { $gte: utcDateKey(start), $lt: utcDateKey(end) },
+    date: { $gte: utcDateKey(start), $lte: lastKey },
   })
     .sort({ date: 1 })
     .lean();

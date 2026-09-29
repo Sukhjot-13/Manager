@@ -50,6 +50,27 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
 - **Medium** — indexable private admin app → `noindex, nofollow, nocache`.
 - **Low** — Geist fonts loaded but overridden by an `Arial` body rule.
 
+### Closed — found while integrating the 7 projects (2026-09-28)
+- **High** — `captureGlobalErrors: true` attached `process.on('uncaughtException'/'unhandledRejection')`;
+  under Next.js this silently stopped all log delivery while the app kept working. Now
+  `captureProcessErrors`, default off, with the reason documented in the SDK.
+- **High** — `captureConsole: null` threw inside `initLogger` (`Cannot read properties of null
+  (reading 'filter')`), which is the idiomatic way to disable console capture. Now valid.
+- **High** — Next.js only inlines `process.env.NEXT_PUBLIC_X` when written as a static member
+  access; a `process.env[name]` lookup in a `'use client'` module returns undefined, so the
+  browser logger and the analytics tracker were silently dead while the tests passed. The
+  server/client config split is now enforced and verified against the built bundle.
+- **Medium** — a logger created in `instrumentation` is not the instance route handlers see
+  (separate module graphs); the SDK also relies on a 5 s timer that serverless can freeze. The
+  facade now creates the logger lazily per request, caches it on `globalThis`, and flushes.
+- **Medium** — analytics "today" ignored `APP_TZ`: buckets are UTC-keyed (per plan) but the
+  window was UTC too, so a UTC-4 owner saw an empty dashboard every evening. Day windows now
+  resolve against the display timezone.
+- **Low** — an analytics test rewound events by a fixed 30 minutes, so it only passed while
+  `now - 30m` shared the UTC day with `now` and failed for 30 minutes after every midnight.
+- **Low** — `scripts/provision-projects.ts` defaulted `MANAGER_ENDPOINT` to `localhost:3000`,
+  which is the *consuming app's* port, not Manager's; it now takes `MANAGER_PUBLIC_ORIGIN`.
+
 ### Closed — full-build audit 2026-09-28
 - **High** — `verifyApiKey` rejected ~4.4% of generated keys (prefix shape check broke on
   base64url), silently breaking integration for those projects.

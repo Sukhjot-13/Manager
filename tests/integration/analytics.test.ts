@@ -20,6 +20,7 @@ import {
 import { GET as exportGet } from "@/app/api/projects/[slug]/analytics/export/route";
 import { GET as overviewGet } from "@/app/api/analytics/route";
 import { EventModel } from "@/lib/db/events";
+import { rollupDay } from "@/lib/rollup";
 import { ApiKeyModel } from "@/lib/db/apikeys";
 import { AppSettingModel, DailyStatModel, RateLimitModel } from "@/lib/db/ops";
 import { ProjectModel } from "@/lib/db/projects";
@@ -614,7 +615,14 @@ describe("analytics rollups and live counts", () => {
   });
 
   it("keeps active now empty for events older than the live window", async () => {
-    await EventModel.updateMany({}, { $set: { ts: new Date(Date.now() - 30 * 60_000) } });
+    // Pin the events to a fixed earlier UTC day and roll that day up explicitly.
+    // Rewinding by a fixed number of minutes made this test depend on the wall clock: it
+    // only passed while `now - 30m` shared the UTC day with `now`, so it failed for the
+    // 30 minutes after every UTC midnight.
+    const day = new Date(Date.now() - 86_400_000);
+    const pinned = new Date(day.getTime() - (day.getTime() % 86_400_000) + 43_200_000);
+    await EventModel.updateMany({}, { $set: { ts: pinned } });
+    await rollupDay(projectId, pinned);
     const data = await summary("range=7d");
     expect(data.totals.visitors).toBe(1);
     expect(data.totals.pageviews).toBe(2);

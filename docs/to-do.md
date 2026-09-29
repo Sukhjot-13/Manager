@@ -65,6 +65,43 @@ role isolation, logout).
 - [ ] Generate `AUTH_SECRET`, `ENV_MASTER_KEY`, `VISITOR_PEPPER` (commands in `README.md`), set
       `ADMIN_EMAIL`/`ADMIN_PASSWORD`, deploy to Vercel, and **back up `ENV_MASTER_KEY` offline**.
 
+## 2026-09-28 — Integration into all 7 projects (branches ready, nothing pushed)
+
+Each repo got an optional Manager integration on its own `feat/manager-integration` branch:
+vendored SDK, server facade, browser provider, docs, tests, `npm run manager:check`, and a
+delivery benchmark. With no `MANAGER_*` variables every one of them is a set of no-ops.
+
+| Repo | Branch | Verified live |
+|---|---|---|
+| ResumeBuilder | `feat/manager-integration` | `error \| server \| mlk \| OTP sending error` |
+| adminsukhjotportfolio | `feat/manager-integration` | `error \| server \| mlk \| [auth] OTP delivery failed` |
+| finance-app | `feat/manager-integration` | `error \| server \| mlk \| Refresh token verification failed` |
+| french-book | `feat/manager-integration` | `info \| server \| mlk \| search_completed` + Chrome pageview |
+| sukhjotPortfolio | `feat/manager-integration` | `info \| server \| mlk \| project_not_found` + Chrome pageview |
+| workout | `feat/manager-integration` | `error \| server \| mlk \| mongodb_connect_failed` + Chrome pageview |
+| writer | `feat/manager-integration` | `warn \| server \| mlk \| middleware_denied` + Chrome pageview |
+
+`cryptoTrading` intentionally skipped. Delivery after tuning, at 212 logs/s:
+**201/200 delivered, 0 dropped, 11 requests, 18.3 entries/request** (was 96/200 delivered,
+105 dropped, 20 requests, 4.8/request).
+
+Findings fixed while integrating:
+- `captureGlobalErrors: true` attached `process.on('uncaughtException'/'unhandledRejection')`,
+  which silently stopped log delivery under Next.js → now `captureProcessErrors`, default off.
+- `captureConsole: null` crashed `initLogger` → null is now a valid "disabled" value.
+- A logger created in `instrumentation` is not the instance route handlers see (separate
+  module graphs) → created lazily per request, cached on `globalThis`.
+- Per-entry `flush()` turned every log line into an HTTP request → 250 ms batch window with
+  a leading-edge flush for `error`/`fatal`.
+- Next.js only inlines `process.env.NEXT_PUBLIC_X` when written as a static member access, so
+  a `process.env[name]` lookup in client code silently disables the browser logger and the
+  tracker → split server/client config, verified in the built bundle.
+- **Manager** — analytics "today" ignored `APP_TZ`, so a UTC-4 owner saw an empty dashboard
+  every evening; day windows now resolve against the display timezone while buckets stay
+  UTC-keyed.
+- A pre-existing analytics test only passed while `now - 30m` shared the UTC day with `now`,
+  i.e. it failed for 30 minutes after every UTC midnight → pinned to a fixed day.
+
 ## 2026-09-28 — Integration documentation pass
 
 Answering "can another app work out how to use this from outside?":

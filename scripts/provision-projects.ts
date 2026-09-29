@@ -74,6 +74,15 @@ async function main(): Promise<void> {
   const { createApiKey } = await import("../lib/keyManagement");
   const { databaseKind } = await import("../lib/readiness");
 
+  // Manager's own origin, never the consuming app's port. MANAGER_PUBLIC_ORIGIN wins when
+  // the deployment is behind a public domain; otherwise fall back to MANAGER_ENDPOINT, and
+  // finally to the local dev server this script usually runs against.
+  const managerEndpoint =
+    process.env.MANAGER_PUBLIC_ORIGIN ??
+    process.env.MANAGER_ENDPOINT ??
+    "http://127.0.0.1:3000";
+  process.stdout.write(`target manager: ${managerEndpoint}\n`);
+
   const target = databaseKind();
   await connectToDatabase();
   const specs = await readSpecs();
@@ -100,7 +109,7 @@ async function main(): Promise<void> {
     const projectId = String(project._id);
     const keys: { kind: string; value: string }[] = [];
     const env: Record<string, string> = {
-      MANAGER_ENDPOINT: process.env.MANAGER_ENDPOINT ?? "http://localhost:3000",
+      MANAGER_ENDPOINT: managerEndpoint,
       MANAGER_APP_ID: spec.slug,
     };
     for (const plan of KEY_PLAN) {

@@ -29,7 +29,7 @@ import {
   type SeriesPoint,
 } from "@/lib/analytics";
 import { IngestError } from "@/lib/ingest";
-import { rangeDates, rollupDay, type DailyRollup } from "@/lib/rollup";
+import { localDayStartUtc, rangeDates, rollupDay, type DailyRollup } from "@/lib/rollup";
 import { EventModel } from "@/lib/db/events";
 import { DailyStatModel } from "@/lib/db/ops";
 import { ProjectModel } from "@/lib/db/projects";
@@ -240,6 +240,26 @@ describe("range boundaries", () => {
     expect(seven.end.getTime() - seven.start.getTime()).toBe(7 * 86_400_000);
     expect(thirty.end.getTime() - thirty.start.getTime()).toBe(30 * 86_400_000);
     expect(thirty.start.getTime()).toBeLessThan(seven.start.getTime());
+  });
+
+  it("resolves local midnight against the display timezone, not blindly UTC", () => {
+    // 2026-09-29T02:00Z is still 2026-09-28 in New York (UTC-4). Buckets stay UTC-keyed;
+    // only the window the dashboard asks for moves.
+    const at = new Date("2026-09-29T02:00:00.000Z");
+    expect(localDayStartUtc(at, "UTC").toISOString()).toBe("2026-09-29T00:00:00.000Z");
+    expect(localDayStartUtc(at, "America/New_York").toISOString()).toBe("2026-09-28T04:00:00.000Z");
+    expect(localDayStartUtc(at, "Asia/Kolkata").toISOString()).toBe("2026-09-28T18:30:00.000Z");
+    expect(localDayStartUtc(at, "Not/AZone").toISOString()).toBe("2026-09-29T00:00:00.000Z");
+
+    // A day window is always exactly 24h, whatever the offset, and today is never empty.
+    for (const zone of ["UTC", "America/New_York", "Asia/Kolkata", "Pacific/Kiritimati"]) {
+      const start = localDayStartUtc(at, zone);
+      expect((start.getTime() + 86_400_000 - start.getTime()) / 86_400_000).toBe(1);
+      expect(start.getTime()).toBeLessThanOrEqual(at.getTime());
+      const today = rangeDates("today", undefined, undefined, zone);
+      expect((today.end.getTime() - today.start.getTime()) / 86_400_000).toBe(1);
+      expect(today.start.getTime()).toBeLessThanOrEqual(Date.now());
+    }
   });
 
   it("makes a custom range inclusive of the end day", () => {
