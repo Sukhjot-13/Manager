@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import type { LogGroup, SerializedLog } from "@/lib/ingest";
+import { chronologicalLogs } from "@/lib/logTimeline";
 
 const LEVELS = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
 type Level = (typeof LEVELS)[number];
@@ -263,6 +264,7 @@ export function LogViewer({
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const together = filters.traceId.trim() !== "";
+  const displayRows = useMemo(() => together ? chronologicalLogs(rows) : rows, [rows, together]);
 
   const runQuery = useCallback(
     async (next: FilterState, group: boolean): Promise<void> => {
@@ -824,8 +826,8 @@ export function LogViewer({
                   No logs match these filters yet.
                 </p>
               ) : null}
-              {rows.map((row, index) => {
-                const previous = rows[index - 1];
+              {displayRows.map((row, index) => {
+                const previous = displayRows[index - 1];
                 const gap =
                   previous === undefined
                     ? 0

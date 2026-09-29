@@ -411,6 +411,30 @@ describe("ingest replay guard and duplicate collapsing", () => {
     expect(await outside.json()).toMatchObject({ accepted: 0, rejected: 2, stale: 2 });
   });
 
+  it("keeps matching errors from different journeys and sources separate", async () => {
+    const error = { level: "error", message: "same journey failure", stack: "Error: same failure" };
+    expect((await post({ key: serverKey, body: { logs: [
+      { ...error, traceId: "journey-a" },
+      { ...error, traceId: "journey-b" },
+      { ...error, traceId: "journey-a" },
+    ] } })).status).toBe(200);
+    expect((await post({ key: clientKey, body: { logs: [{ ...error, traceId: "journey-a" }] } })).status).toBe(200);
+    expect((await post({ key: serverKey, body: { logs: [{ ...error, traceId: "journey-b" }] } })).status).toBe(200);
+    const rows = await LogModel.find({ message: error.message }).lean();
+    expect(rows).toHaveLength(3);
+    expect(rows.find(row => row.source === "server" && row.traceId === "journey-a")?.count).toBe(2);
+    expect(rows.find(row => row.source === "server" && row.traceId === "journey-b")?.count).toBe(2);
+    expect(rows.find(row => row.source === "client")?.count).toBe(1);
+  });
+
+  it("counts collapsed SDK occurrences when inserting and incrementing an error", async () => {
+    const error = { level: "error", message: "collapsed SDK failure", traceId: "counted-journey", meta: { count: 5 } };
+    expect((await post({ key: serverKey, body: { logs: [error] } })).status).toBe(200);
+    expect((await LogModel.findOne({ message: error.message }).lean())?.count).toBe(5);
+    expect((await post({ key: serverKey, body: { logs: [{ ...error, meta: { count: 3 } }] } })).status).toBe(200);
+    expect((await LogModel.findOne({ message: error.message }).lean())?.count).toBe(8);
+  });
+
   it("collapses repeated errors into one counted row inside the window", async () => {
     const first = await post({
       key: serverKey,

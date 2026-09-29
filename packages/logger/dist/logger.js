@@ -278,8 +278,8 @@ function fingerprint(message, stack) {
     return `${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
 }
 function stackOf(value) {
-    if (value instanceof Error && typeof value.stack === "string") {
-        return trim(value.stack, MAX_STACK_CHARS);
+    if (typeof value === "object" && value !== null && "stack" in value && typeof value.stack === "string") {
+        return value.stack;
     }
     return "";
 }
@@ -400,7 +400,7 @@ function buildEntry(state, bindings, level, message, meta, stack, durationMs) {
         entry.durationMs = Math.max(0, Math.round(durationMs));
     }
     if (stack !== "") {
-        entry.stack = stack;
+        entry.stack = trim(stripControl(redactString(stack, state.config.redactKeys)), MAX_STACK_CHARS);
     }
     if (meta !== undefined) {
         const merged = typeof meta === "object" && meta !== null && !Array.isArray(meta)
@@ -567,9 +567,10 @@ async function post(state, batch, keepalive) {
     if (fetchImpl === null) {
         return 0;
     }
+    let pending;
     transportDepth += 1;
     try {
-        const response = await fetchImpl(state.config.url, {
+        pending = fetchImpl(state.config.url, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -581,11 +582,13 @@ async function post(state, batch, keepalive) {
             credentials: "omit",
             mode: "cors",
         });
-        return statusOf(response);
     }
     finally {
         transportDepth -= 1;
     }
+    // Suppress interception only while invoking our transport, not while its network
+    // request is pending: unrelated console errors and app fetches must still be captured.
+    return statusOf(await pending);
 }
 function beacon(state, batch) {
     if (!isBrowser() || typeof Blob !== "function") {
@@ -737,10 +740,10 @@ function collapseRepeat(state, entry) {
     if (!ERROR_LEVELS.includes(entry.level)) {
         return false;
     }
-    const key = fingerprint(entry.message, entry.stack ?? "");
+    const key = `${entry.traceId}:${fingerprint(entry.message, entry.stack ?? "")}`;
     const existing = state.groups.get(key);
     const now = Date.now();
-    if (existing !== undefined && now - existing.at <= GROUP_WINDOW_MS) {
+    if (existing !== undefined && state.queue.includes(existing.entry) && now - existing.at <= GROUP_WINDOW_MS) {
         const meta = typeof existing.entry.meta === "object" && existing.entry.meta !== null
             ? existing.entry.meta
             : {};
@@ -794,7 +797,10 @@ function makeMethod(state, bindings, trace, level) {
         if (!shouldSample(state, level) || !takeTokens(state)) {
             return;
         }
-        const stack = ERROR_LEVELS.includes(level) ? stackOf(bindings.error) : "";
+        const error = typeof meta === "object" && meta !== null && !Array.isArray(meta)
+            ? meta.error
+            : undefined;
+        const stack = ERROR_LEVELS.includes(level) ? stackOf(error) || stackOf(bindings.error) : "";
         enqueue(state, buildEntry({ ...state, trace }, bindings, level, message, meta, stack, durationMs));
     };
 }
@@ -953,6 +959,14 @@ function describeInput(input) {
     }
     return "";
 }
+function sameOrigin(input) {
+    try {
+        return new URL(describeInput(input), window.location.href).origin === window.location.origin;
+    }
+    catch {
+        return false;
+    }
+}
 function installFetch(state) {
     if (!isBrowser()) {
         return;
@@ -973,8 +987,15 @@ function installFetch(state) {
                 return original(input, init);
             }
             const started = Date.now();
-            const record = (typeof init === "object" && init !== null ? init : {});
-            injectTraceHeader(record.headers, state.trace.value);
+            const record = { ...(typeof init === "object" && init !== null ? init : {}) };
+            // Fetch accepts objects, tuples, Headers, or inherited Request headers. Clone them
+            // so tracing works in every form without mutating the caller's options. Keep
+            // third-party requests unchanged to avoid adding cross-origin preflights.
+            if (sameOrigin(input)) {
+                const inherited = typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined;
+                record.headers = new Headers((record.headers ?? inherited));
+                injectTraceHeader(record.headers, state.trace.value);
+            }
             return original(input, record).then((response) => {
                 const status = statusOf(response);
                 report("info", {

@@ -62,6 +62,7 @@ afterEach(() => {
   shutdownLoggers();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("regex escaping", () => {
@@ -197,6 +198,13 @@ describe("payload caps and server-derived fields", () => {
     const info = prepareEntry({ level: "info", message: "fine" }, context);
     expect("fingerprint" in errored && errored.fingerprint).toHaveLength(16);
     expect("fingerprint" in info && info.fingerprint).toBe("");
+  });
+
+  it.each([[5, 5], [2000, 1000], [-1, 1], [2.5, 1], ["5", 1]])("bounds SDK repetition hints (%j)", (hint, expected) => {
+    const entry = prepareEntry({ level: "error", message: "repeat", meta: { count: hint } }, context);
+    expect("doc" in entry && entry.doc.count).toBe(expected);
+    const info = prepareEntry({ level: "info", message: "ordinary", meta: { count: hint } }, context);
+    expect("doc" in info && info.doc.count).toBe(1);
   });
 
   it("stamps ip, country and key prefix from the request, never the payload", () => {
@@ -499,6 +507,154 @@ describe("sdk redaction, sampling, rate limiting and caps", () => {
       const rows = allLogs(transport.calls);
       expect(rows).toHaveLength(1);
       expect((rows[0]?.meta as Record<string, unknown>).count).toBe(5);
+    } finally {
+      transport.restore();
+    }
+  });
+});
+
+describe("sdk browser fetch tracing", () => {
+  function browserFixture() {
+    vi.stubGlobal("window", {
+      location: { href: "https://app.example.test/dashboard", origin: "https://app.example.test", pathname: "/dashboard" },
+      history: { pushState() {}, replaceState() {} },
+      addEventListener() {},
+      localStorage: { getItem: () => null, setItem() {} },
+      console: { warn: vi.fn(), error: vi.fn() },
+    });
+    vi.stubGlobal("document", { referrer: "" });
+    vi.stubGlobal("navigator", { userAgent: "test", language: "en" });
+  }
+
+  it.each([
+    undefined,
+    { "content-type": "application/json" },
+    new Headers({ authorization: "Bearer fixture" }),
+    [["x-custom", "fixture"]],
+  ])("adopts browser traces for every fetch header format without mutating caller headers (%j)", async headers => {
+    browserFixture();
+    const transport = stubFetch();
+    try {
+      const log = initLogger(baseOptions({ captureConsole: null, captureFetch: true }) as never);
+      const options = { headers } as RequestInit;
+      const before = Array.from(new Headers(options.headers));
+      await fetch("/api/resumes", options);
+      const sent = new Headers(transport.calls[0]?.init.headers as HeadersInit);
+      expect(sent.get("x-trace-id")).toBe(log.traceId());
+      for (const [key, value] of before) expect(sent.get(key)).toBe(value);
+      expect(Array.from(new Headers(options.headers))).toEqual(before);
+    } finally {
+      transport.restore();
+    }
+  });
+
+  it("preserves Request headers and leaves third-party fetches unchanged", async () => {
+    browserFixture();
+    const transport = stubFetch();
+    try {
+      const log = initLogger(baseOptions({ captureConsole: null, captureFetch: true }) as never);
+      const request = new Request("https://app.example.test/api/profile", { headers: { "x-custom": "fixture" } });
+      await fetch(request);
+      const sent = new Headers(transport.calls[0]?.init.headers as HeadersInit);
+      expect(sent.get("x-custom")).toBe("fixture");
+      expect(sent.get("x-trace-id")).toBe(log.traceId());
+      expect(request.headers.has("x-trace-id")).toBe(false);
+      await fetch("https://external.example.test/data", { headers: { "x-custom": "external" } });
+      expect(transport.calls[1]?.init.headers).toEqual({ "x-custom": "external" });
+    } finally {
+      transport.restore();
+    }
+  });
+
+  it("captures application errors and traces fetches while a log delivery is pending", async () => {
+    browserFixture();
+    const calls: FetchCall[] = [];
+    let release: (response: unknown) => void = () => {};
+    vi.stubGlobal("fetch", (url: string, init: Record<string, unknown>) => {
+      calls.push({ url, init });
+      if (calls.length === 1) return new Promise(resolve => { release = resolve; });
+      return Promise.resolve({ status: 200, ok: true });
+    });
+    const log = initLogger(baseOptions({ captureConsole: ["error"], captureFetch: true }) as never);
+    log.info("first batch");
+    const flushing = log.flush();
+    window.console.error("application failure during delivery");
+    await fetch("/api/resumes");
+    expect(new Headers(calls[1]?.init.headers as HeadersInit).get("x-trace-id")).toBe(log.traceId());
+    release({ status: 200, ok: true });
+    await flushing;
+    const logs = allLogs(calls.filter(call => call.url.includes("/api/ingest/logs")));
+    expect(logs.some(row => row.message === "application failure during delivery")).toBe(true);
+    const requests = logs.filter(row => row.message === "http_request");
+    expect(requests).toHaveLength(1);
+    expect((requests[0]?.meta as Record<string, unknown>).url).toBe("/api/resumes");
+  });
+});
+
+describe("sdk error stacks", () => {
+  it("delivers matching errors after a completed flush and keeps separate traces in one batch", async () => {
+    const transport = stubFetch();
+    try {
+      const log = initLogger(baseOptions() as never);
+      log.error("repeat after flush");
+      await log.flush();
+      log.error("repeat after flush");
+      await log.flush();
+      log.withTrace("first-request").error("same exception");
+      log.withTrace("second-request").error("same exception");
+      await log.flush();
+      const rows = allLogs(transport.calls);
+      expect(rows.filter(row => row.message === "repeat after flush")).toHaveLength(2);
+      expect(rows.filter(row => row.message === "same exception").map(row => row.traceId)).toEqual(["first-request", "second-request"]);
+    } finally {
+      transport.restore();
+    }
+  });
+  it("preserves distinct errors logged under the same wrapper message", async () => {
+    const transport = stubFetch();
+    try {
+      const log = initLogger(baseOptions() as never);
+      log.error("Unhandled route error", { error: new Error("database unavailable") });
+      log.error("Unhandled route error", { error: { stack: "Error: invalid document\n  at save (/app.js:9:1)" } });
+      await log.flush();
+      const rows = allLogs(transport.calls);
+      expect(rows).toHaveLength(2);
+      expect(rows[0]?.stack).toContain("Error: database unavailable");
+      expect(rows[1]?.stack).toContain("Error: invalid document");
+    } finally {
+      transport.restore();
+    }
+  });
+
+  it("redacts and bounds serialized stacks while preserving more than metadata's string cap", async () => {
+    const transport = stubFetch();
+    try {
+      const log = initLogger(baseOptions({ redactKeys: ["password"] }) as never);
+      log.error("failure", { error: { stack: `Error: password=do-not-leak\n${"at frame\n".repeat(1200)}` } });
+      await log.flush();
+      const rows = allLogs(transport.calls);
+      expect(rows).toHaveLength(1);
+      expect(String(rows[0]?.stack).length).toBe(8000);
+      expect(rows[0]?.stack).toContain("password=***");
+      expect(JSON.stringify(rows)).not.toContain("do-not-leak");
+    } finally {
+      transport.restore();
+    }
+  });
+
+  it("retains child error bindings and lets a per-call error override them", async () => {
+    const transport = stubFetch();
+    try {
+      const log = initLogger(baseOptions() as never);
+      const child = log.child({ error: new Error("bound failure") });
+      child.error("bound");
+      child.fatal("override", { error: new Error("specific failure") });
+      child.info("ordinary");
+      await log.flush();
+      const rows = allLogs(transport.calls);
+      expect(rows[0]?.stack).toContain("bound failure");
+      expect(rows[1]?.stack).toContain("specific failure");
+      expect(rows[2]).not.toHaveProperty("stack");
     } finally {
       transport.restore();
     }

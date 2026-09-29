@@ -162,3 +162,12 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
   `/settings/keys` guarded by the wrong permission, duplicate mongoose index declarations.
 
 _(none open)_
+
+### Closed — ResumeBuilder integration verification 2026-09-29
+
+- SDK metadata errors lost top-level stacks and different exceptions collapsed under generic wrapper messages. Native/serialized errors now retain bounded, redacted stacks.
+- Browser fetch tracing only worked with mutable `Headers` instances. Same-origin requests now support absent/object/tuple/Headers/Request headers without mutating caller options or adding third-party preflights.
+- SDK uploads suppressed unrelated console errors and fetch tracing for the whole network wait. Suppression now covers only the synchronous transport invocation, with a delayed-upload regression test.
+- Trace timelines displayed newest-first with negative elapsed gaps. The combined journey now displays chronological rows; feed ordering and pagination remain unchanged.
+- Both lint warnings were removed without introducing a runtime mongoose import into client code.
+- Repeated SDK errors disappeared after a flush, and ingest merged matching errors across traces/sources. Repetition is now restricted to queued same-trace entries; ingestion preserves separate journey/source rows and counts bounded SDK repetition hints.

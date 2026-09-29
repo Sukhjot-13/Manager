@@ -201,6 +201,14 @@ export function prepareEntry(
   );
   const parsed = parseUserAgent(userAgent);
   const fp = ERROR_LEVELS.includes(level) ? fingerprint(message, stack) : "";
+  // The SDK collapses queued repeats into one entry with a bounded repetition hint.
+  // Ignore invalid hints and ordinary metadata on non-error levels.
+  const repeat = typeof meta === "object" && meta !== null && !Array.isArray(meta)
+    ? (meta as Record<string, unknown>).count
+    : undefined;
+  const occurrences = fp !== "" && typeof repeat === "number" && Number.isSafeInteger(repeat) && repeat > 0
+    ? Math.min(repeat, 1000)
+    : 1;
   const doc = {
     projectId: context.projectId,
     keyPrefix: context.keyPrefix,
@@ -209,7 +217,7 @@ export function prepareEntry(
     meta,
     stack,
     fingerprint: fp,
-    count: 1,
+    count: occurrences,
     source: context.source,
     sessionId: cleanText(entry.sessionId as string | undefined, 80),
     pageId: cleanText(entry.pageId as string | undefined, 80),
@@ -319,7 +327,7 @@ export async function ingestLogs(
   const dedupe: LogDoc[] = [];
   let rejected = 0;
   let stale = 0;
-  const counts = new Map<string, number>();
+  const dedupeByJourney = new Map<string, LogDoc>();
 
   for (const raw of parsed.data.logs) {
     const result = prepareEntry(raw as Record<string, unknown>, {
@@ -339,16 +347,13 @@ export async function ingestLogs(
       continue;
     }
     if (result.fingerprint !== "") {
-      const seen = counts.get(result.fingerprint);
-      if (seen !== undefined) {
-        const existing = dedupe.find((doc) => doc.fingerprint === result.fingerprint);
-        if (existing !== undefined) {
-          existing.count = (existing.count ?? 1) + 1;
-          counts.set(result.fingerprint, seen + 1);
-        }
+      const journey = `${result.fingerprint}:${result.doc.traceId}`;
+      const existing = dedupeByJourney.get(journey);
+      if (existing !== undefined) {
+        existing.count = (existing.count ?? 1) + result.doc.count;
         continue;
       }
-      counts.set(result.fingerprint, 1);
+      dedupeByJourney.set(journey, result.doc);
       dedupe.push(result.doc);
       continue;
     }
@@ -372,20 +377,20 @@ export async function ingestLogs(
     const windowStart = new Date(now.getTime() - INGEST_LIMITS.groupWindowMs);
     const fingerprints = dedupe.map((doc) => doc.fingerprint);
     const existing = await LogModel.find(
-      { projectId, fingerprint: { $in: fingerprints }, ts: { $gte: windowStart } },
-      { fingerprint: 1, _id: 1 },
+      { projectId, source, fingerprint: { $in: fingerprints }, traceId: { $in: dedupe.map(doc => doc.traceId) }, ts: { $gte: windowStart } },
+      { fingerprint: 1, traceId: 1, _id: 1 },
     )
       .lean()
       .exec();
     const existingByFingerprint = new Map<string, string>();
     for (const row of existing) {
-      existingByFingerprint.set(row.fingerprint, String(row._id));
+      existingByFingerprint.set(`${row.fingerprint}:${row.traceId ?? ""}`, String(row._id));
     }
 
     const increments: Parameters<typeof LogModel.bulkWrite>[0] = [];
     const inserts: LogDoc[] = [];
     for (const doc of dedupe) {
-      const id = existingByFingerprint.get(doc.fingerprint);
+      const id = existingByFingerprint.get(`${doc.fingerprint}:${doc.traceId}`);
       if (id === undefined) {
         inserts.push(doc);
         stored += 1;

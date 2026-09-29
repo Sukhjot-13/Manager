@@ -235,8 +235,8 @@ export function fingerprint(message: string, stack: string): string {
 }
 
 function stackOf(value: unknown): string {
-  if (value instanceof Error && typeof value.stack === "string") {
-    return trim(value.stack, MAX_STACK_CHARS);
+  if (typeof value === "object" && value !== null && "stack" in value && typeof value.stack === "string") {
+    return value.stack;
   }
   return "";
 }
@@ -383,7 +383,7 @@ function buildEntry(
     entry.durationMs = Math.max(0, Math.round(durationMs));
   }
   if (stack !== "") {
-    entry.stack = stack;
+    entry.stack = trim(stripControl(redactString(stack, state.config.redactKeys)), MAX_STACK_CHARS);
   }
   if (meta !== undefined) {
     const merged =
@@ -564,9 +564,10 @@ async function post(state: State, batch: LogEntry[], keepalive: boolean): Promis
   if (fetchImpl === null) {
     return 0;
   }
+  let pending: Promise<unknown>;
   transportDepth += 1;
   try {
-    const response = await fetchImpl(state.config.url, {
+    pending = fetchImpl(state.config.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -578,10 +579,12 @@ async function post(state: State, batch: LogEntry[], keepalive: boolean): Promis
       credentials: "omit",
       mode: "cors",
     });
-    return statusOf(response);
   } finally {
     transportDepth -= 1;
   }
+  // Suppress interception only while invoking our transport, not while its network
+  // request is pending: unrelated console errors and app fetches must still be captured.
+  return statusOf(await pending);
 }
 
 function beacon(state: State, batch: LogEntry[]): boolean {
@@ -744,10 +747,10 @@ function collapseRepeat(state: State, entry: LogEntry): boolean {
   if (!ERROR_LEVELS.includes(entry.level)) {
     return false;
   }
-  const key = fingerprint(entry.message, entry.stack ?? "");
+  const key = `${entry.traceId}:${fingerprint(entry.message, entry.stack ?? "")}`;
   const existing = state.groups.get(key);
   const now = Date.now();
-  if (existing !== undefined && now - existing.at <= GROUP_WINDOW_MS) {
+  if (existing !== undefined && state.queue.includes(existing.entry) && now - existing.at <= GROUP_WINDOW_MS) {
     const meta =
       typeof existing.entry.meta === "object" && existing.entry.meta !== null
         ? (existing.entry.meta as Record<string, unknown>)
@@ -812,7 +815,10 @@ function makeMethod(
     if (!shouldSample(state, level) || !takeTokens(state)) {
       return;
     }
-    const stack = ERROR_LEVELS.includes(level) ? stackOf(bindings.error) : "";
+    const error = typeof meta === "object" && meta !== null && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>).error
+      : undefined;
+    const stack = ERROR_LEVELS.includes(level) ? stackOf(error) || stackOf(bindings.error) : "";
     enqueue(
       state,
       buildEntry(
@@ -1019,6 +1025,14 @@ function describeInput(input: unknown): string {
   return "";
 }
 
+function sameOrigin(input: unknown): boolean {
+  try {
+    return new URL(describeInput(input), window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function installFetch(state: State): void {
   if (!isBrowser()) {
     return;
@@ -1044,11 +1058,18 @@ function installFetch(state: State): void {
         return original(input, init);
       }
       const started = Date.now();
-      const record = (typeof init === "object" && init !== null ? init : {}) as Record<
+      const record = { ...(typeof init === "object" && init !== null ? init : {}) } as Record<
         string,
         unknown
       >;
-      injectTraceHeader(record.headers, state.trace.value);
+      // Fetch accepts objects, tuples, Headers, or inherited Request headers. Clone them
+      // so tracing works in every form without mutating the caller's options. Keep
+      // third-party requests unchanged to avoid adding cross-origin preflights.
+      if (sameOrigin(input)) {
+        const inherited = typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined;
+        record.headers = new Headers((record.headers ?? inherited) as HeadersInit | undefined);
+        injectTraceHeader(record.headers, state.trace.value);
+      }
       return original(input, record).then(
         (response: unknown) => {
           const status = statusOf(response);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve } from "node:path";
 
 /**
  * Guards the client/server boundary.

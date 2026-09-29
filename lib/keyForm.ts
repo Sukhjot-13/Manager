@@ -1,5 +1,5 @@
-const KEY_KINDS = ["server", "client", "analytics"] as const;
-export type KeyKind = (typeof KEY_KINDS)[number];
+import type { KeyKind } from "@/lib/db/apikeys";
+export type { KeyKind } from "@/lib/db/apikeys";
 
 export type KeyCreateFailure = "no_projects" | "no_project" | "no_name";
 

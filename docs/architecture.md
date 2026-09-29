@@ -46,7 +46,7 @@
 | `lib/db/ops.ts` | `daily_stats` rollups, `rate_limits` (unique `(key, windowStart)`), `app_settings`, `login_attempts`, `audit_events` | `DailyStatModel`, `RateLimitModel`, `AppSettingModel`, `LoginAttemptModel`, `AuditEventModel`, `APP_SETTING_KEYS`, `LOG_TTL_DAYS`, `EVENT_TTL_DAYS`, `SECRET_AUDIT_TTL_DAYS`, `RATE_LIMIT_WINDOW_SECONDS` |
 | `lib/projects.ts` | Project service (slugify, unique slugs, regex-escaped search, cascade delete) | `slugify`, `listProjects`, `getProjectBySlug`, `getProjectById`, `createProject`, `updateProject`, `deleteProject`, `serializeProject`, types `ProjectInput`/`ProjectListFilters`/`ProjectSummary` |
 | `lib/projectTypes.ts` | `PROJECT_STATUSES`, `LINK_TYPES` + types | the only project vocabulary the browser may import; deliberately imports nothing, because a value import from a module that also builds a mongoose model crashes the page in the browser |
-| `lib/keyForm.ts` | `buildKeyCreateBody`, `keyCreateFailureMessage` | decides what the create-key form may send; refuses a nameless key, an empty project list, or an unnamed project before the request is made |
+| `lib/keyForm.ts` | `buildKeyCreateBody`, `keyCreateFailureMessage` | decides what the create-key form may send; refuses a nameless key, an empty project list, or an unnamed project before the request is made; imports/re-exports the canonical `KeyKind` as a type only, keeping mongoose out of client bundles |
 | `lib/keyManagement.ts` | API key lifecycle | `createApiKey`, `listApiKeys`, `listAllApiKeys`, `revokeApiKey`, `deleteApiKey`, `generateVerifiableApiKey`, `isVerifiablePrefix`, `maskKeyPrefix`, `KeyError`, types `MaskedApiKey`/`CreatedApiKey`/`KeyInput` |
 | `lib/apiKeys.ts` | Key generation, constant-time verification, kind→scope rules | `generateApiKey`, `verifyApiKey`, `hashKey`, `keyPrefixOf`, `kindCanWriteLogs`, `kindCanWriteEvents`, `sourceForKind`, `redactKey`, type `VerifiedKey`/`GeneratedKey` |
 | `lib/ingest.ts` | Log ingest + viewer query engine | `ingestLogs`, `queryLogs`, `groupLogs`, `countLogs`, `logFacets`, `prepareEntry`, `buildLogFilter`, `parseIngestTs`, `hasForbiddenFields`, `cleanText`, `metaSize`, `escapeRegex`, `encodeCursor`, `decodeCursor`, `serializeLog`, `resolveLimit`, `objectIdOrNull`, `IngestError`, consts `INGEST_LIMITS`/`SERVER_DERIVED_FIELDS`/`NODE_RUNTIME_FIELDS`/`MAX_EXPORT_ROWS`/`MAX_QUERY_LIMIT` |
@@ -119,7 +119,9 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/(dash)/projects/[slug]/env/page.tsx` + `components/secrets/secrets-panel.tsx` | Vault: env selector, masked values, 30 s reveal, copy, import/export dialogs, audit list | `SecretsPanel` |
 | `app/(dash)/projects/[slug]/keys/page.tsx` + `components/logs/keys-panel.tsx` | Key list, create-once display, revoke | `KeysPanel` |
 | `app/(dash)/settings/keys/page.tsx` | Cross-project key list; passes the real project list to `KeysPanel` so a project with no keys is still selectable | `SettingsKeysPage` |
-| `app/(dash)/projects/[slug]/logs/page.tsx` + `components/logs/log-viewer.tsx` | All/Server/Client tabs, filters, trace view, error grouping, live tail, detail drawer, exports | `LogViewer` |
+| `app/(dash)/projects/[slug]/logs/page.tsx` + `components/logs/log-viewer.tsx` | All/Server/Client tabs, filters, trace view, error grouping, live tail, detail drawer, exports. Trace rows use memoized `chronologicalLogs` for oldest-first journeys and nonnegative gaps; ordinary log feeds and API cursors keep newest-first ordering. | `LogViewer` |
+| `lib/logTimeline.ts` | Orders a copy of mixed client/server rows by timestamp then ID; preserves the paginated data for normal feeds and cursors | `chronologicalLogs` |
+| `tests/unit/log-timeline.test.ts` | Mixed-source chronological ordering, timestamp ties, positive gaps, input immutability, empty/single timelines | — |
 | `app/(dash)/projects/[slug]/integrate/page.tsx` + `components/logs/integrate-panel.tsx` | SDK install command + init snippet | `IntegratePanel` |
 | `app/(dash)/projects/[slug]/analytics/page.tsx` + `components/analytics/*` | Range switcher, charts, breakdowns, active-now, ingest toggle | `ProjectAnalytics`, `TrafficChart`, `Breakdown`, `TrackerSnippet` |
 | `app/(dash)/projects/[slug]/analytics/setup/page.tsx` | Tracker embed snippet with masked key | page |
@@ -136,11 +138,18 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 
 | File | Purpose | Exports |
 |---|---|---|
-| `packages/logger/src/index.ts` | Isomorphic zero-dependency SDK: levels, child loggers, timers, batching + backoff + offline queue, console/global-error/fetch auto-capture, auto-context, trace correlation, redaction, fingerprinting, self rate limiting, `flush()`/shutdown hooks | `initLogger`, `traceIdFromHeaders`, `shutdownLoggers`, `fingerprint`, `LOG_SDK_VERSION`, `LOG_SDK_PATH`, `TRACE_HEADER` |
+| `packages/logger/src/index.ts` | Isomorphic zero-dependency SDK: levels, child loggers, timers, batching + backoff + offline queue, console/global-error/fetch auto-capture, auto-context, trace correlation, redaction, fingerprinting, self rate limiting, `flush()`/shutdown hooks. `stackOf` extracts native or serialized errors from per-call metadata before child bindings; `buildEntry` redacts and caps stacks to 8,000 characters, allowing distinct wrapper errors to retain distinct fingerprints. | `initLogger`, `traceIdFromHeaders`, `shutdownLoggers`, `fingerprint`, `LOG_SDK_VERSION`, `LOG_SDK_PATH`, `TRACE_HEADER` |
 | `packages/logger/src/types.ts` | SDK public types | (types only) |
 | `packages/logger/build.mjs` | Zero-dependency bundler → single self-contained file; fails if any `import` survives | _(build script)_ |
 | `packages/logger/dist/logger.ts` | The vendored artifact served to user apps | (generated, committed) |
-| `packages/logger/dist/logger.source.ts` | Same bytes as a string constant so the route can serve them | `LOGGER_SDK_SOURCE` |
+| `packages/logger/dist/logger.js` | JavaScript artifact generated from the same bundled TypeScript for JS consumers | (generated, committed) |
+| `packages/logger/dist/logger.source.ts` | Both artifacts as string constants so the route can serve them | `LOGGER_SDK_SOURCE`, `LOGGER_SDK_SOURCE_JS` |
+
+`installFetch` clones fetch options and normalizes absent/object/tuple/Headers/inherited Request headers for same-origin requests before adding `x-trace-id`. `sameOrigin` compares request URLs against the browser origin; third-party fetch headers remain unchanged to avoid introducing CORS preflights. SDK browser tests exercise each header form, caller immutability and third-party isolation.
+
+`post` suppresses auto-capture only during the synchronous SDK transport invocation; awaiting delivery no longer suppresses unrelated application console errors or fetch traces. The delayed-transport regression checks both continued capture and absence of recursive SDK request logs.
+
+`collapseRepeat` merges only entries still queued in the same trace; errors occurring after a flush are sent again. `prepareEntry` interprets positive integer error-only `meta.count` repetition hints capped at 1,000. `ingestLogs` deduplicates by project/source/fingerprint/trace both within and across batches, so matching browser/server errors or separate requests keep their own trace evidence. The error-group viewer still aggregates fingerprints across journeys. Regression tests cover post-flush repeats, trace isolation and repetition caps.
 
 ## Tests & Tooling
 
@@ -158,7 +167,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/integration/readiness.test.ts` | Unconfigured deployment: missing-var detection, actionable 503 login (never a bare 500), no session cookie, unreachable-DB path, configured path still works |
 | `tests/unit/page-rendering.test.ts` | Landing page must stay `force-dynamic` (nonce cannot be injected into static HTML) |
 | `tests/unit/secrets.test.ts` | `.env` parsing, crypto round-trip/tamper/fresh-IV, masking, permission map |
-| `tests/unit/ingest.test.ts` | Regex escaping, timestamp guards, caps, fingerprinting, redaction, CSV, SDK internals (incl. `captureConsole: null` no longer crashing, and no process listeners unless opted in) |
+| `tests/unit/ingest.test.ts` | Regex escaping, timestamp guards, caps, fingerprinting, redaction, CSV, SDK internals (incl. null console capture, opt-in process listeners, distinct metadata error stacks, serialized stack redaction/caps and child bindings) |
 | `scripts/bench-ingest.mjs` | Ingest benchmark: bulk-insert path, in-batch dedupe, worst-case distinct-fingerprint path |
 | `scripts/measure-log-delivery.mjs` (in consumer repos) | Measures requests-per-burst and client-side drop count |
 | `tests/unit/analytics.test.ts` | Visitor ids, bot table, ranges, rollup maths, origin check, tracker assertions |
