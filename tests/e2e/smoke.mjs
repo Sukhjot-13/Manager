@@ -181,6 +181,46 @@ async function main() {
     const relisted = await json(`/api/projects/${slug}/keys`);
     check("key list never returns the full key", JSON.stringify(relisted.body).includes(serverKey) === false);
 
+    // The cross-project screen (/settings/keys) issues keys through POST /api/keys, a
+    // different route from the per-project one above. It shipped as a 405 because only the
+    // per-project POST was ever exercised, so it is checked here over real HTTP.
+    process.stdout.write("\ncross-project keys\n");
+    const projectId = created.body?.project?.id ?? "";
+    // An explicit empty cookie stops call() from attaching the signed-in session.
+    const anonCreate = await call("/api/keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: "" },
+      body: JSON.stringify({ projectId, name: "anon", kind: "server" }),
+    });
+    check("POST /api/keys rejects an unauthenticated caller", anonCreate.status === 401);
+    const noProject = await json("/api/keys", {
+      method: "POST",
+      body: JSON.stringify({ name: "orphan", kind: "server" }),
+    });
+    check("POST /api/keys requires an explicit project", noProject.response.status === 400);
+    const ghostProject = await json("/api/keys", {
+      method: "POST",
+      body: JSON.stringify({ projectId: "6abb3abe7f54171579000000", name: "ghost", kind: "server" }),
+    });
+    check("POST /api/keys rejects an unknown project", ghostProject.response.status === 404);
+    const cross = await json("/api/keys", {
+      method: "POST",
+      body: JSON.stringify({ projectId, name: "browser key", kind: "client" }),
+    });
+    const clientKey = cross.body?.key?.key ?? "";
+    check(
+      "POST /api/keys mints a key bound to the named project",
+      cross.response.status === 201 && clientKey.startsWith("mck_") && cross.body?.key?.projectId === projectId,
+      JSON.stringify(cross.body),
+    );
+    const allKeys = await json("/api/keys?all=1");
+    check(
+      "POST /api/keys never leaks the full value into the listing",
+      JSON.stringify(allKeys.body).includes(clientKey) === false,
+    );
+    const revoked = await json(`/api/keys/${cross.body?.key?.id ?? ""}`, { method: "PATCH" });
+    check("cross-project key revokes", revoked.response.status === 200 && Boolean(revoked.body?.key?.revokedAt));
+
     const ingest = await call("/api/ingest/logs", {
       method: "POST",
       headers: { "x-api-key": serverKey },

@@ -64,6 +64,17 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
   a plain `process.env[...]` lookup reappears in the client-facing block.
 
 ### Closed — found in production on the first deploy (2026-09-29)
+- **High — the keys screen 400'd on a brand-new install.** The first fix made the project
+  selector conditional on `projects.length > 0`, so with no projects yet — exactly the state of
+  a fresh database — the form sent no `projectId` and the server answered a bare 400 that said
+  nothing about the cause. A project is now always required on the cross-project screen, the
+  button is disabled with an explanation when there is nothing to choose, and the decision lives
+  in `lib/keyForm.ts` so it is unit-testable without a DOM. Lesson worth keeping: "no options"
+  is not the same as "no answer required".
+- **High — the E2E suite never touched `/api/keys`.** Zero of its checks exercised the route
+  the settings screen actually uses, which is why a 405 on that route shipped despite 57
+  passing checks. The suite now mints, lists and revokes a key through `POST /api/keys` over real
+  HTTP, including the unauthenticated, missing-project and unknown-project paths.
 - **High — `POST /api/keys` did not exist, so no key could ever be issued from the app.**
   `/settings/keys` renders the shared `KeysPanel` with `basePath="/api/keys"` and issues keys
   with `POST`, but that route only exported `GET`: every attempt returned **405** with no error

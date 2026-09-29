@@ -10,6 +10,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { buildKeyCreateBody, keyCreateFailureMessage } from "@/lib/keyForm";
 
 const KEY_KINDS = ["server", "client", "analytics"] as const;
 type KeyKind = (typeof KEY_KINDS)[number];
@@ -108,22 +109,29 @@ export function KeysPanel({
 
   // On the cross-project screen the route has no slug, so the project has to be named in
   // the body. On a project's own screen the slug already identifies it.
-  const projectRequired = showProjectColumn && projects.length > 0;
+  //
+  // This is deliberately true even when `projects` is empty. Treating "no projects" as
+  // "project not required" silently sent a request with no projectId and surfaced a bare
+  // 400 from the server; the honest state is "there is nothing to issue a key for yet".
+  const projectRequired = showProjectColumn;
 
   const create = useCallback(async (): Promise<void> => {
-    if (projectRequired && newProjectId.trim() === "") {
-      push("choose a project for this key", "error");
+    const built = buildKeyCreateBody({
+      name,
+      kind,
+      projectRequired,
+      projectId: newProjectId,
+      projectCount: projects.length,
+    });
+    if (!built.ok) {
+      push(keyCreateFailureMessage(built.reason), "error");
       return;
     }
     try {
       const response = await fetch(basePath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          kind,
-          ...(projectRequired ? { projectId: newProjectId } : {}),
-        }),
+        body: JSON.stringify(built.body),
       });
       const payload: unknown = await response.json();
       if (!response.ok) {
@@ -138,7 +146,7 @@ export function KeysPanel({
     } catch {
       push("could not create key", "error");
     }
-  }, [basePath, kind, load, name, newProjectId, projectRequired, push]);
+  }, [basePath, kind, load, name, newProjectId, projectRequired, projects.length, push]);
 
   const revoke = useCallback(async (): Promise<void> => {
     if (revoking === null) {
@@ -285,6 +293,12 @@ export function KeysPanel({
             variant="outline"
             size="sm"
             className="ml-auto"
+            disabled={showProjectColumn && projects.length === 0}
+            title={
+              showProjectColumn && projects.length === 0
+                ? "Create a project first — every key is issued for one"
+                : undefined
+            }
             onClick={() => setCreateOpen(true)}
           >
             <Plus size={14} />
@@ -400,18 +414,25 @@ export function KeysPanel({
               htmlFor="key-project"
               hint="This key can only write logs for the project it is issued for."
             >
-              <Select
-                id="key-project"
-                value={newProjectId}
-                onChange={(event) => setNewProjectId(event.target.value)}
-              >
-                <option value="">choose a project</option>
-                {projects.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name || option.slug}
-                  </option>
-                ))}
-              </Select>
+              {projects.length === 0 ? (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                  There are no projects yet. Create one first — every key is issued for a
+                  specific project, so a key cannot exist on its own.
+                </p>
+              ) : (
+                <Select
+                  id="key-project"
+                  value={newProjectId}
+                  onChange={(event) => setNewProjectId(event.target.value)}
+                >
+                  <option value="">choose a project</option>
+                  {projects.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name || option.slug}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </Field>
           ) : null}
           <Field label="Name" htmlFor="key-name" hint="Where this key is used, e.g. api-worker">
