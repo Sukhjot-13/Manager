@@ -63,6 +63,18 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
   (server) and `managerClientConfig` (browser, static member access), with a test that fails if
   a plain `process.env[...]` lookup reappears in the client-facing block.
 
+### Closed — found while auditing the client key handling (2026-09-28)
+- **High — `NEXT_PUBLIC_MANAGER_LOG_KEY` could publish the server key.** Six app facades
+  fell back to `NEXT_PUBLIC_MANAGER_LOG_KEY` when `NEXT_PUBLIC_MANAGER_CLIENT_KEY` was unset.
+  The name invites setting it to the server `MANAGER_LOG_KEY` value, and anything
+  `NEXT_PUBLIC_` is inlined into the public bundle — that would have shipped the `mlk_` key to
+  every visitor and misattributed browser logs to `source: "server"`. The alias is removed;
+  the browser key is `NEXT_PUBLIC_MANAGER_CLIENT_KEY` and nothing else.
+- **Medium — an unverifiable test in french_book.** Its integration suite is an assert/tsx
+  file, so `npx vitest` reports "no test suite found"; run it with `npm test`. A vitest-style
+  import resolution error also suggested adding a `.js` extension to a TypeScript import,
+  which is wrong for this repo and breaks the Turbopack build. Extensionless stays.
+
 ### Closed — found while integrating the 7 projects (2026-09-28)
 - **High** — `captureGlobalErrors: true` attached `process.on('uncaughtException'/'unhandledRejection')`;
   under Next.js this silently stopped all log delivery while the app kept working. Now
