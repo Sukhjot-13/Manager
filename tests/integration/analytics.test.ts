@@ -451,7 +451,8 @@ describe("analytics ingest hardening", () => {
     expect(options.status).toBe(204);
     expect(options.headers.get("access-control-allow-origin")).toBe("*");
     expect(options.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
-    expect(options.headers.get("access-control-allow-headers")).toBe("content-type");
+    // content-type plus the trace header a browser client may attach; still no credentials.
+    expect(options.headers.get("access-control-allow-headers")).toBe("content-type, x-trace-id");
     expect(options.headers.get("access-control-allow-credentials")).toBeNull();
     const response = await post({ key: analyticsKey, userAgent: CHROME });
     expect(response.headers.get("access-control-allow-origin")).toBe("*");

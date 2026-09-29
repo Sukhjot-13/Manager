@@ -50,6 +50,19 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
 - **Medium** — indexable private admin app → `noindex, nofollow, nocache`.
 - **Low** — Geist fonts loaded but overridden by an `Arial` body rule.
 
+### Closed — found by loading the apps in a real browser (2026-09-28)
+- **High — browser-side log delivery was blocked by CORS in every app.** The SDK sends
+  `x-trace-id` for trace correlation, but the ingest preflight only allowed
+  `content-type, x-api-key`, so every browser log was dropped by the browser while the SDK
+  reported success. Now allowed on both ingest routes, with a regression test asserting the
+  preflight, and confirmed live: `source=client` rows with a trace id and captured
+  `http_request` context arrive from a real headless Chrome.
+- **High — ResumeBuilder's browser logger and tracker were dead.** It was built before the
+  `NEXT_PUBLIC_*` trap was found, so its `'use client'` module read `process.env` at runtime
+  (empty in the browser) and the integration silently no-opped. Split into `managerConfig`
+  (server) and `managerClientConfig` (browser, static member access), with a test that fails if
+  a plain `process.env[...]` lookup reappears in the client-facing block.
+
 ### Closed — found while integrating the 7 projects (2026-09-28)
 - **High** — `captureGlobalErrors: true` attached `process.on('uncaughtException'/'unhandledRejection')`;
   under Next.js this silently stopped all log delivery while the app kept working. Now

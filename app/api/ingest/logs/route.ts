@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "content-type, x-api-key",
+  "Access-Control-Allow-Headers": "content-type, x-api-key, x-trace-id",
   "Access-Control-Max-Age": "86400",
   "Cache-Control": "no-store",
 };

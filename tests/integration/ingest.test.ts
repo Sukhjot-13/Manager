@@ -194,7 +194,14 @@ describe("ingest authentication", () => {
     expect(options.headers.get("access-control-allow-origin")).toBe("*");
     expect(options.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
     expect(options.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    // Regression: the browser SDK sends x-trace-id for trace correlation. If the preflight
+    // omits it, every browser-side log is dropped by CORS while the SDK reports success.
+    const allowed = (options.headers.get("access-control-allow-headers") ?? "").toLowerCase();
+    for (const header of ["content-type", "x-api-key", "x-trace-id"]) {
+      expect(allowed).toContain(header);
+    }
     expect(options.headers.get("access-control-allow-credentials")).toBeNull();
+    expect(options.headers.get("access-control-max-age")).toBeTruthy();
     const response = await post({ key: serverKey, body: { logs: [{ level: "info", message: "cors" }] } });
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
     expect(response.headers.get("access-control-allow-credentials")).toBeNull();
@@ -952,6 +959,20 @@ describe("sdk download route", () => {
     }
     return requestWithCookie(`${ORIGIN}/api/sdk/logger${query}`, undefined, { headers });
   }
+
+  it("allows the trace header for event ingest too, and never a wildcard on the SDK route", async () => {
+    const { OPTIONS: eventOptions } = await import("@/app/api/ingest/events/route");
+    const options = await eventOptions();
+    expect((options.headers.get("access-control-allow-headers") ?? "").toLowerCase()).toContain(
+      "content-type",
+    );
+    expect(options.headers.get("access-control-allow-origin")).toBe("*");
+    expect(options.headers.get("access-control-allow-credentials")).toBeNull();
+
+    const sdk = await sdkGet(sdkRequest(null));
+    expect(sdk.status).toBe(401);
+    expect(sdk.headers.get("access-control-allow-origin")).toBeNull();
+  });
 
   it("serves the vendored single file sdk for a valid key header", async () => {
     const response = await sdkGet(sdkRequest(serverKey));
