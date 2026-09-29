@@ -56,14 +56,23 @@ function stamp(value: string | null): string {
   return value === null ? "—" : new Date(value).toLocaleString();
 }
 
+export type ProjectOption = { id: string; name: string; slug: string };
+
 export function KeysPanel({
   initialKeys,
   showProjectColumn = false,
   basePath,
+  projects = [],
 }: {
   initialKeys: KeyRow[];
   showProjectColumn?: boolean;
   basePath: string;
+  /**
+   * The real project list, passed by the caller. It cannot be derived from the loaded
+   * keys: a project with no keys yet would be unselectable, which is exactly the project
+   * you most need to create the first key for.
+   */
+  projects?: ProjectOption[];
 }) {
   const { push } = useToast();
   const [keys, setKeys] = useState<KeyRow[]>(initialKeys);
@@ -76,6 +85,7 @@ export function KeysPanel({
   const [revoking, setRevoking] = useState<KeyRow | null>(null);
   const [deleting, setDeleting] = useState<KeyRow | null>(null);
   const [projectFilter, setProjectFilter] = useState("all");
+  const [newProjectId, setNewProjectId] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | KeyKind>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "revoked">("all");
 
@@ -96,12 +106,24 @@ export function KeysPanel({
     }
   }, [basePath, push]);
 
+  // On the cross-project screen the route has no slug, so the project has to be named in
+  // the body. On a project's own screen the slug already identifies it.
+  const projectRequired = showProjectColumn && projects.length > 0;
+
   const create = useCallback(async (): Promise<void> => {
+    if (projectRequired && newProjectId.trim() === "") {
+      push("choose a project for this key", "error");
+      return;
+    }
     try {
       const response = await fetch(basePath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, kind }),
+        body: JSON.stringify({
+          name,
+          kind,
+          ...(projectRequired ? { projectId: newProjectId } : {}),
+        }),
       });
       const payload: unknown = await response.json();
       if (!response.ok) {
@@ -116,7 +138,7 @@ export function KeysPanel({
     } catch {
       push("could not create key", "error");
     }
-  }, [basePath, kind, load, name, push]);
+  }, [basePath, kind, load, name, newProjectId, projectRequired, push]);
 
   const revoke = useCallback(async (): Promise<void> => {
     if (revoking === null) {
@@ -182,9 +204,9 @@ export function KeysPanel({
 
   const active = keys.filter((row) => row.revokedAt === null);
   const revoked = keys.filter((row) => row.revokedAt !== null);
-  const projects = [...new Set(keys.map((row) => row.projectSlug))].filter(
-    (slug) => slug !== "",
-  );
+  const filterSlugs = [
+    ...new Set([...keys.map((row) => row.projectSlug), ...projects.map((p) => p.slug)]),
+  ].filter((slug) => slug !== "");
   const visible = keys.filter((row) => {
     if (projectFilter !== "all" && row.projectSlug !== projectFilter) {
       return false;
@@ -213,7 +235,7 @@ export function KeysPanel({
               onChange={(event) => setProjectFilter(event.target.value)}
             >
               <option value="all">all projects</option>
-              {projects.map((slug) => (
+              {filterSlugs.map((slug) => (
                 <option key={slug} value={slug}>
                   {slug}
                 </option>
@@ -372,6 +394,26 @@ export function KeysPanel({
         }
       >
         <div className="space-y-3">
+          {projectRequired ? (
+            <Field
+              label="Project"
+              htmlFor="key-project"
+              hint="This key can only write logs for the project it is issued for."
+            >
+              <Select
+                id="key-project"
+                value={newProjectId}
+                onChange={(event) => setNewProjectId(event.target.value)}
+              >
+                <option value="">choose a project</option>
+                {projects.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name || option.slug}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Field label="Name" htmlFor="key-name" hint="Where this key is used, e.g. api-worker">
             <Input
               id="key-name"

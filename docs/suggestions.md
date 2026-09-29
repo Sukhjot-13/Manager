@@ -63,6 +63,18 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
   (server) and `managerClientConfig` (browser, static member access), with a test that fails if
   a plain `process.env[...]` lookup reappears in the client-facing block.
 
+### Closed — found in production on the first deploy (2026-09-29)
+- **High — `POST /api/keys` did not exist, so no key could ever be issued from the app.**
+  `/settings/keys` renders the shared `KeysPanel` with `basePath="/api/keys"` and issues keys
+  with `POST`, but that route only exported `GET`: every attempt returned **405** with no error
+  in the UI's own code path. The per-project route (`/api/projects/[slug]/keys`) had a POST, so
+  the bug only appeared on the cross-project screen, and no test or E2E check issued a key
+  through the global route. The fix adds the POST with an **explicit** `projectId` in the body:
+  the route has no slug in its path, so without a project named in the request there is nothing
+  to bind the credential to, and guessing would file a key under the wrong project. The panel
+  now takes the real project list from the caller — it cannot be derived from the loaded keys,
+  because a project with zero keys is precisely the one you need to issue a first key for.
+
 ### Closed — found while auditing the client key handling (2026-09-28)
 - **High — `NEXT_PUBLIC_MANAGER_LOG_KEY` could publish the server key.** Six app facades
   fell back to `NEXT_PUBLIC_MANAGER_LOG_KEY` when `NEXT_PUBLIC_MANAGER_CLIENT_KEY` was unset.

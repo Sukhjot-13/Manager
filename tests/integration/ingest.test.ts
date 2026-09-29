@@ -11,7 +11,7 @@ import { seedUser } from "@/tests/helpers/users";
 import { POST as ingestLogsPost, OPTIONS as ingestOptions } from "@/app/api/ingest/logs/route";
 import { GET as sdkGet } from "@/app/api/sdk/logger/route";
 import { GET as keysGet, POST as keysPost } from "@/app/api/projects/[slug]/keys/route";
-import { GET as allKeysGet } from "@/app/api/keys/route";
+import { GET as allKeysGet, POST as allKeysPost } from "@/app/api/keys/route";
 import {
   DELETE as keyDelete,
   PATCH as keyPatch,
@@ -809,6 +809,71 @@ describe("log export", () => {
   });
 });
 
+describe("cross-project key creation", () => {
+  // No default parameter: passing `undefined` must mean "no cookie", so a default here
+  // would silently authenticate the unauthenticated case.
+  function createRequest(body: unknown, cookie?: { name: string; value: string }): NextRequest {
+    return requestWithCookie(`${ORIGIN}/api/keys`, cookie, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  }
+
+  it("rejects an unauthenticated caller", async () => {
+    const response = await allKeysPost(
+      createRequest({ projectId, name: "nope", kind: "server" }, undefined),
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects a caller without keys.manage", async () => {
+    await seedUser({ email: "keys-reader@example.com", role: "USER" });
+    const reader = await authCookie({ email: "keys-reader@example.com", role: "USER" });
+    const response = await allKeysPost(
+      createRequest({ projectId, name: "nope", kind: "server" }, reader),
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("requires an explicit project, so a key is never filed under a guess", async () => {
+    const missing = await allKeysPost(
+      createRequest({ name: "no project", kind: "server" }, ownerCookie),
+    );
+    expect(missing.status).toBe(400);
+    const blank = await allKeysPost(
+      createRequest({ projectId: "   ", name: "blank project", kind: "server" }, ownerCookie),
+    );
+    expect(blank.status).toBe(400);
+    // Nothing was created by either attempt.
+    const listed = await allKeysGet(requestWithCookie(`${ORIGIN}/api/keys`, ownerCookie));
+    const payload = (await listed.json()) as { keys: { name: string }[] };
+    expect(payload.keys.some((row) => row.name.startsWith("no ") || row.name === "blank project")).toBe(
+      false,
+    );
+  });
+
+  it("rejects an unknown project id instead of creating an orphan key", async () => {
+    const response = await allKeysPost(
+      createRequest(
+        { projectId: new mongoose.Types.ObjectId().toString(), name: "ghost", kind: "server" },
+        ownerCookie,
+      ),
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("rejects a malformed body and a bad kind", async () => {
+    expect((await allKeysPost(createRequest("{", ownerCookie))).status).toBe(400);
+    expect(
+      (await allKeysPost(createRequest({ projectId, name: "", kind: "server" }, ownerCookie))).status,
+    ).toBe(400);
+    expect(
+      (await allKeysPost(createRequest({ projectId, name: "ok", kind: "root" }, ownerCookie))).status,
+    ).toBe(400);
+  });
+});
+
 describe("api key management", () => {
   it("lists masked keys only", async () => {
     const response = await keysGet(
@@ -939,12 +1004,36 @@ describe("api key management", () => {
   });
 
   it("lists every key across projects for keys.view", async () => {
+    // Regression: /settings/keys posts here, and the route used to export only GET, so
+    // issuing a key from the cross-project screen returned 405 with no local error at all.
+    const issued = await allKeysPost(
+      requestWithCookie(`${ORIGIN}/api/keys`, ownerCookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, name: "cross-project", kind: "client" }),
+      }),
+    );
+    expect(issued.status).toBe(201);
+    const issuedPayload = (await issued.json()) as {
+      key: { projectId: string; projectSlug: string; kind: string; key: string; masked: string };
+    };
+    // The key is bound to the project named in the body, not to some default.
+    expect(issuedPayload.key.projectId).toBe(projectId);
+    expect(issuedPayload.key.projectSlug).toBe(SLUG);
+    expect(issuedPayload.key.kind).toBe("client");
+    expect(issuedPayload.key.key).toMatch(/^mck_/);
+    // The full value is returned exactly once, and the listing never echoes it.
+    const after = await allKeysGet(requestWithCookie(`${ORIGIN}/api/keys`, ownerCookie));
+    const afterText = await after.text();
+    expect(afterText).not.toContain(issuedPayload.key.key);
+    expect(afterText).toContain(issuedPayload.key.masked);
+
     const response = await allKeysGet(
       requestWithCookie(`${ORIGIN}/api/keys`, ownerCookie),
     );
     expect(response.status).toBe(200);
     const payload = (await response.json()) as { keys: { projectSlug: string }[] };
-    expect(payload.keys).toHaveLength(3);
+    expect(payload.keys).toHaveLength(4);
     expect(payload.keys.every((row) => row.projectSlug === SLUG)).toBe(true);
     const unauth = await allKeysGet(requestWithCookie(`${ORIGIN}/api/keys`, undefined));
     expect(unauth.status).toBe(401);

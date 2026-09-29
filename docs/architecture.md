@@ -82,7 +82,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/api/secrets/[id]/route.ts` | `PATCH`/`DELETE` | `secrets.edit` | audits |
 | `app/api/secrets/[id]/reveal/route.ts` | `POST` | `secrets.reveal` | single decrypt + audit row, `no-store` |
 | `app/api/projects/[slug]/keys/route.ts` | `GET`/`POST` | `keys.view` / `keys.manage` | full key returned exactly once |
-| `app/api/keys/route.ts` | `GET` | `keys.view` | all keys across projects |
+| `app/api/keys/route.ts` | `GET`/`POST` | `keys.view` / `keys.manage` | all keys across projects; `POST` requires an explicit `projectId` in the body and returns the full key exactly once |
 | `app/api/keys/[id]/route.ts` | `PATCH`/`DELETE` | `keys.manage` | revoke / remove |
 | `app/api/ingest/logs/route.ts` | `POST`/`OPTIONS` | `x-api-key` (public by design) | generic 401, 415, 413, 429 + `Retry-After`, kill switches, key-kind scoping, replay guard |
 | `app/api/ingest/events/route.ts` | `POST`/`OPTIONS` | analytics key in body (public) | same hardening, bot filtering, origin soft-check |
@@ -116,6 +116,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `components/projects/project-tabs.tsx` | Permission-filtered tabs | `ProjectTabs` |
 | `app/(dash)/projects/[slug]/env/page.tsx` + `components/secrets/secrets-panel.tsx` | Vault: env selector, masked values, 30 s reveal, copy, import/export dialogs, audit list | `SecretsPanel` |
 | `app/(dash)/projects/[slug]/keys/page.tsx` + `components/logs/keys-panel.tsx` | Key list, create-once display, revoke | `KeysPanel` |
+| `app/(dash)/settings/keys/page.tsx` | Cross-project key list; passes the real project list to `KeysPanel` so a project with no keys is still selectable | `SettingsKeysPage` |
 | `app/(dash)/settings/keys/page.tsx` | All keys across projects | page |
 | `app/(dash)/projects/[slug]/logs/page.tsx` + `components/logs/log-viewer.tsx` | All/Server/Client tabs, filters, trace view, error grouping, live tail, detail drawer, exports | `LogViewer` |
 | `app/(dash)/projects/[slug]/integrate/page.tsx` + `components/logs/integrate-panel.tsx` | SDK install command + init snippet | `IntegratePanel` |
