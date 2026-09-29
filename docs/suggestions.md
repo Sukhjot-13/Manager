@@ -63,6 +63,16 @@ plan (specs F2/F3/F5, hardening #1/#2/#6/#12–14, threat rows #19–26, §4 ind
   (server) and `managerClientConfig` (browser, static member access), with a test that fails if
   a plain `process.env[...]` lookup reappears in the client-facing block.
 
+### Closed — found by loading a real app in a real browser (2026-09-29)
+- **High — the analytics tracker has never worked for any app, ever.** `next.config.ts` applies
+  `Cross-Origin-Resource-Policy: same-origin` to `/:path*`, which includes `/t.js`. The tracker
+  is loaded as a `<script>`, i.e. a *no-cors* request, and CORP is the header that governs
+  those — so Chrome rejected it with `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` and no app ever
+  recorded a pageview. `Access-Control-Allow-Origin: *` was present and correct the entire
+  time, which is exactly why this looked healthy: CORS was never the gate. `/t.js` and
+  `/api/t.js` now send `cross-origin`; every other path keeps `same-origin`. Two tests pin
+  both halves, including that the relaxed rule is never widened beyond those two paths.
+
 ### Closed — found in production on the first deploy (2026-09-29)
 - **High — the Projects page crashed in the browser before rendering anything.**
   `TypeError: Cannot read properties of undefined (reading 'Project')` at module evaluation.

@@ -46,3 +46,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Real production API keys, created 2026-09-29 for the Vercel/Atlas deployment.
+# Never commit: these are live credentials for all seven projects.
+.production-keys.local.json

@@ -15,6 +15,11 @@ export function trackerHeaders(): Record<string, string> {
     "Cache-Control": "public, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
     "Access-Control-Allow-Origin": "*",
+    // The tracker is loaded as a <script> by every other app, which makes it a no-cors
+    // request. The global Cross-Origin-Resource-Policy: same-origin in next.config.ts made
+    // Chrome reject it with ERR_BLOCKED_BY_RESPONSE.NotSameOrigin, so no app has ever
+    // recorded a pageview. CORS allows the read; CORP is what actually blocked it.
+    "Cross-Origin-Resource-Policy": "cross-origin",
     ETag: TRACKER_ETAG,
   };
 }
