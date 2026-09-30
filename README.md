@@ -423,6 +423,7 @@ reveal/copy/export in the vault is written to an audit log you can read in the U
 - **Authoritative server-side authorization** on every route; the UI gate is cosmetic only. Unknown roles, malformed ranks, protected permissions and delegation attempts all fail closed.
 - **Login hardening** — `timingSafeEqual`, generic errors (no user enumeration), per-IP + per-account counters, 5 failures → 15-minute lockout, no global counter.
 - **Ingest hardening** — hashed keys with constant-time compare, generic 401s, server-stamped fields never trusted from payloads, strict Zod, size/batch caps, replay guard, in-memory + durable Mongo rate limits (unique `(key, windowStart)` index), global and per-project kill switches, `no-store` on every authenticated response.
+- **Vault configuration** — `GET /api/ping` reports `vaultEncryption: ready|missing|invalid` without revealing the key. If imports fail, check Manager’s production `ENV_MASTER_KEY`: it must be the existing 64-character hexadecimal vault key. Restore it and redeploy. Replacing a key used by stored secrets prevents their decryption.
 - **Vault** — encrypted at rest, `no-store` reveals, 30-second re-mask, full audit trail, resumable key rotation.
 - **Headers** — `nosniff`, `X-Frame-Options: DENY`, HSTS, COOP/CORP, restrictive `Permissions-Policy`, `X-Powered-By` off, `noindex` (private app).
 - `npm audit` is clean; the dep set is deliberately small.
