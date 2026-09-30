@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Manager</title>
+  <rect width="64" height="64" rx="15" fill="#0f766e"/>
+  <path d="M16 46V18l16 17 16-17v28" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

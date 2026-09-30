@@ -202,3 +202,7 @@ Verification: 403/403 tests, lint and type checking passed. A production build w
 - Implemented a direct Add link/Manage links editor in the project Links card; previously link fields were buried in the full edit dialog. New-tab indicators, accessible fields and save feedback make the existing storage feature visible.
 
 - Fixed an existing partial-update data-loss bug discovered by the links regression: creation defaults were being applied to omitted PATCH properties. Shared default-free field constraints now preserve omitted settings.
+
+## 2026-09-30 — Branded favicon
+
+- Replaced the default Next.js tab icon with a distinct Manager mark, including scalable SVG, small-size ICO fallback and Apple touch icon. Verify readability on both light and dark tab backgrounds.

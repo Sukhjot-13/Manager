@@ -290,3 +290,15 @@ Regression discovery: deriving update validation from defaulted create fields po
 The project-link partial-update regression also asserts preservation of status, tags, emoji, color and repository. JSX formatting was reviewed for the shared links-only/full-editor layout.
 
 Verification: `npm run verify` passed lint, TypeScript, all 438 unit/integration tests and the production build. Browser tests against a disposable MongoDB saved two synthetic links, verified a links-only PATCH and preserved notes, reloaded the saved rows, clicked a link and confirmed a separate tab with the expected URL, and checked the target/noopener/noreferrer attributes. A simulated HTTP 500 preserved draft URLs, disabled fields while saving and rejected duplicate submit events; retry succeeded with a concise success toast. Editing a link then opening the full editor without reload showed the updated labels and original notes. A 390px viewport screenshot fits without horizontal overflow; console/page error checks were empty. React review checked refs/hooks, accessible input names, pending states, responsive layout and permission gates. README documents the direct Links-card workflow.
+
+### Branded browser icons — 2026-09-30
+
+| File | Purpose | Functions |
+|---|---|---|
+| `app/icon.svg` | Primary crisp, scalable Manager browser-tab mark; self-contained vector artwork registered through Next.js file metadata. | None (static SVG). |
+| `app/favicon.ico` | Replaces the default Next.js favicon with the same mark at 16, 32, 48 and 64 pixels for browser compatibility. | None (static multi-resolution ICO). |
+| `app/apple-icon.png` | Matching 180px icon for iOS/home-screen bookmarks. | None (static PNG). |
+
+Next.js automatically emits the icon and Apple icon link tags. The new SVG icon URL receives a generated cache identifier, so supported browsers request the branded asset instead of the old default favicon. No environment variables, authentication behavior or executable functions were changed.
+
+Icon verification: `npm run verify`: lint, type checking, all 438 tests and the production build passed. Visual preview checked 16px/32px/64px variants on light and dark browser-tab backgrounds. Browser checks against production builds verified SVG/ICO/Apple metadata links, generated cache identifiers, HTTP 200 and correct image MIME types for every icon without authentication. No page errors occurred. All raster assets were generated from the corresponding SVG; ICO contains 16/32/48/64px frames and Apple PNG is 180px.
