@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { LINK_TYPES, PROJECT_STATUSES } from "@/lib/projectTypes";
+import { projectFailureMessages } from "@/lib/projectForm";
 import type { ProjectSummary } from "@/lib/projects";
 
 type LinkDraft = { type: string; url: string; label: string };
@@ -23,7 +24,7 @@ export function ProjectForm({
   const { push } = useToast();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState<string[]>([]);
   const [name, setName] = useState(project?.name ?? "");
   const [slug, setSlug] = useState(project?.slug ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
@@ -40,7 +41,7 @@ export function ProjectForm({
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
-    setError("");
+    setErrors([]);
     const payload = {
       name: name.trim(),
       slug: slug.trim(),
@@ -62,29 +63,32 @@ export function ProjectForm({
           label: link.label.trim(),
         })),
     };
-    const response = await fetch(
-      project === undefined ? "/api/projects" : `/api/projects/${project.slug}`,
-      {
-        method: project === undefined ? "POST" : "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
-    setPending(false);
-    if (response.ok) {
-      const body = (await response.json()) as { project: ProjectSummary };
-      setOpen(false);
-      push(project === undefined ? "Project created" : "Project updated", "success");
-      router.push(`/projects/${body.project.slug}`);
-      router.refresh();
-      return;
+    try {
+      const response = await fetch(
+        project === undefined ? "/api/projects" : `/api/projects/${project.slug}`,
+        {
+          method: project === undefined ? "POST" : "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (response.ok) {
+        const body = (await response.json()) as { project: ProjectSummary };
+        setOpen(false);
+        push(project === undefined ? "Project created" : "Project updated", "success");
+        router.push(`/projects/${body.project.slug}`);
+        router.refresh();
+        return;
+      }
+      const body: unknown = await response.json().catch(() => null);
+      // Blank link drafts are omitted from the payload; retain visible row numbers.
+      const linkRows = links.flatMap((link, index) => link.url.trim() === "" ? [] : [index]);
+      setErrors(projectFailureMessages(response.status, body, linkRows));
+    } catch {
+      setErrors(["Could not connect to the server. Check your connection and try again."]);
+    } finally {
+      setPending(false);
     }
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    setError(
-      body.error === "internal_error"
-        ? "Slug already in use"
-        : "Check the form and try again",
-    );
   }
 
   const fields = (
@@ -237,10 +241,12 @@ export function ProjectForm({
           onChange={(event) => setNotesMd(event.target.value)}
         />
       </Field>
-      {error !== "" ? (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
+      {errors.length > 0 ? (
+        <div role="alert" className="text-sm text-red-600 dark:text-red-400">
+          <ul className="list-disc space-y-1 pl-5">
+            {errors.map((message) => <li key={message}>{message}</li>)}
+          </ul>
+        </div>
       ) : null}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={() => setOpen(false)}>

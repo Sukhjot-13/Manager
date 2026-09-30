@@ -148,6 +148,7 @@ describe("projects CRUD", () => {
       requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "Resume Builder", slug })),
     );
     expect(response.status).toBe(400);
+    expect((await response.json()).fieldErrors).toEqual([{ field: "slug", message: "Use lowercase letters and numbers separated by hyphens, e.g. resume-builder." }]);
     expect(await ProjectModel.countDocuments({})).toBe(0);
   });
 
@@ -169,6 +170,7 @@ describe("projects CRUD", () => {
       requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "" })),
     );
     expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ fieldErrors: [{ field: "name", message: "Enter a project name." }] });
     const badLink = await createProject(
       requestWithCookie(
         `${ORIGIN}/api/projects`,
@@ -177,6 +179,63 @@ describe("projects CRUD", () => {
       ),
     );
     expect(badLink.status).toBe(400);
+    expect(await badLink.json()).toMatchObject({ fieldErrors: [{ field: "links.0.url", message: "Enter a complete URL, e.g. https://example.com." }] });
+  });
+
+  it.each([{}, { name: "   " }])("explains missing names: %j", async (payload) => {
+    const response = await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json(payload)));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ fieldErrors: [{ field: "name", message: "Enter a project name." }] });
+    expect(await ProjectModel.countDocuments({})).toBe(0);
+  });
+
+  it("reports all edit validation failures and leaves the project unchanged", async () => {
+    await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "Edit" })));
+    const response = await patchProject(requestWithCookie(`${ORIGIN}/api/projects/edit`, ownerCookie, {
+      ...json({ name: " ", slug: "BAD", links: [{ type: "live", url: "invalid" }] }), method: "PATCH",
+    }), { params: Promise.resolve({ slug: "edit" }) });
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.issues).toBe(3);
+    expect(body.fieldErrors.map((issue: { field: string }) => issue.field)).toEqual(["name", "slug", "links.0.url"]);
+    expect((await ProjectModel.findOne({ slug: "edit" }))?.name).toBe("Edit");
+  });
+
+  it.each(["POST", "PATCH"])("explains malformed JSON in %s", async (method) => {
+    const request = requestWithCookie(`${ORIGIN}/api/projects/edit`, ownerCookie, { method, headers: { "content-type": "application/json" }, body: "{" });
+    const response = method === "POST" ? await createProject(request) : await patchProject(request, { params: Promise.resolve({ slug: "edit" }) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_json" });
+    expect(response.headers.get("cache-control")).toBe(NO_STORE);
+  });
+
+  it("checks authorization before exposing create/edit validation details", async () => {
+    const id = await seedUser({ email: "unprivileged@example.com", role: "USER" });
+    const cookie = await authCookie({ id, email: "unprivileged@example.com", role: "USER" });
+    for (const session of [undefined, cookie]) {
+      const created = await createProject(requestWithCookie(`${ORIGIN}/api/projects`, session, json({ name: "" })));
+      const edited = await patchProject(requestWithCookie(`${ORIGIN}/api/projects/edit`, session, { ...json({ slug: "BAD" }), method: "PATCH" }), { params: Promise.resolve({ slug: "edit" }) });
+      for (const response of [created, edited]) {
+        expect(response.status).toBe(session === undefined ? 401 : 403);
+        expect(await response.json()).toEqual({ error: session === undefined ? "unauthorized" : "forbidden" });
+      }
+    }
+  });
+
+  it("saves unchanged and renamed slugs, returning 409 for actual conflicts", async () => {
+    for (const name of ["First", "Second"]) {
+      await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name })));
+    }
+    const duplicate = await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "Third", slug: "first" })));
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual({ error: "slug_in_use" });
+    for (const [slug, expected] of [["first", 200], ["second", 409], ["renamed", 200]] as const) {
+      const response = await patchProject(requestWithCookie(`${ORIGIN}/api/projects/first`, ownerCookie, { ...json({ slug, description: "Updated" }), method: "PATCH" }), { params: Promise.resolve({ slug: "first" }) });
+      expect(response.status).toBe(expected);
+      if (expected === 409) expect(await response.json()).toEqual({ error: "slug_in_use" });
+    }
+    expect(await ProjectModel.countDocuments({})).toBe(2);
+    expect((await ProjectModel.findOne({ slug: "renamed" }))?.description).toBe("Updated");
   });
 
   it("404s an unknown project and refuses deletion for non-admins", async () => {

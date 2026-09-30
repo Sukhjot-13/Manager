@@ -6,6 +6,13 @@ import { EventModel } from "@/lib/db/events";
 import { SecretAuditModel, SecretModel } from "@/lib/db/secrets";
 import { DailyStatModel } from "@/lib/db/ops";
 
+export class ProjectSlugConflictError extends Error {
+  constructor() {
+    super("slug already in use");
+    this.name = "ProjectSlugConflictError";
+  }
+}
+
 export type ProjectInput = {
   name: string;
   slug?: string;
@@ -94,7 +101,7 @@ export async function createProject(input: ProjectInput): Promise<ProjectDoc> {
   }
   const duplicate = await ProjectModel.exists({ slug });
   if (duplicate !== null) {
-    throw new Error("slug already in use");
+    throw new ProjectSlugConflictError();
   }
   const created = await ProjectModel.create({
     name: input.name.trim(),
@@ -127,9 +134,10 @@ export async function updateProject(
     if (next === "") {
       throw new Error("invalid slug");
     }
-    const duplicate = await ProjectModel.exists({ slug: next, _id: { $ne: slug } });
+    if (next !== slug.toLowerCase() && await ProjectModel.exists({ slug: next }) !== null) {
+      throw new ProjectSlugConflictError();
+    }
     update.slug = next;
-    void duplicate;
   }
   for (const key of [
     "description",

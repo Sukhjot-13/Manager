@@ -19,11 +19,11 @@ export const slugSchema = z
   .string()
   .min(1)
   .max(60)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "slug must be kebab-case");
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters and numbers separated by hyphens, e.g. resume-builder.");
 
 export const linkSchema = z.object({
   type: z.enum(LINK_TYPES),
-  url: z.string().url().max(500),
+  url: z.string().url("Enter a complete URL, e.g. https://example.com.").max(500),
   label: z.string().max(80).default(""),
 });
 
@@ -32,7 +32,7 @@ function normalizeOptionalProjectSlug(value: unknown): unknown {
 }
 
 export const projectCreateSchema = z.object({
-  name: z.string().min(1).max(80),
+  name: z.string({ error: "Enter a project name." }).trim().min(1, "Enter a project name.").max(80, "Use 80 characters or fewer."),
   // The project form submits an empty string for its optional slug input.
   slug: z.preprocess(normalizeOptionalProjectSlug, slugSchema.optional()),
   description: z.string().max(1000).default(""),

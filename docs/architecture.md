@@ -2,6 +2,7 @@
 
 > Status: **P0–P5 complete** (2026-09-28). Spec: [`docs/plan.md`](./plan.md). Open items: [`docs/to-do.md`](./to-do.md).
 > This is the live inventory (file → purpose → functions) — update it on every change.
+> Project-form verification 2026-09-30: 403 tests, lint, type checking, production build and 17 Chromium checks (isolated database; real validation and simulated server/network failures).
 > Inventory audit 2026-09-28: full scan of all 134 source files (`.ts`/`.tsx`/`.mjs`) plus config,
 > assets and docs. Latest verification 2026-09-29: `npm run verify` (lint + tsc + 382 tests + build) and
 > `npm run test:e2e` (63 checks against a real production server + real MongoDB).
@@ -65,7 +66,7 @@ the client and analytics keys are deliberately public, kind-scoped ingest creden
 | `lib/auth.ts` | Request→principal resolution and route guards | `getPrincipal`, `getPrincipalFromCookieStore`, `requirePrincipal`, `requirePrincipalFromCookieStore`, `authorize`, `authorizeUserManagement`, `assertPermission`, `capabilitiesFor`, `errorResponse`, `HttpError`, `unauthorized`, `forbidden`, `notFound` |
 | `lib/authService.ts` | Login policy: env owner + bcrypt users, lockout counters | `attemptLogin`, `verifyPassword`, `lockoutRemainingMs`, `clearFailures`, `MAX_LOGIN_ATTEMPTS`, `LOCKOUT_MS`, type `LoginOutcome` |
 | `lib/users.ts` | User administration + audit log | `listUsers`, `getUserById`, `createUser`, `updateUser`, `serializeUser`, `countAdmins`, `recordAudit`, `listAuditEvents`, `principalFromUser`, `isProtectedPermission`, types `UserSummary`/`CreateUserInput`/`UpdateUserInput` |
-| `lib/validation.ts` | Shared Zod schemas + ingest limits; private `normalizeOptionalProjectSlug(value)` treats blank project-form slugs as omitted without weakening explicit slug validation | `slugSchema`, `linkSchema`, `projectCreateSchema`, `projectUpdateSchema`, `logEntrySchema`, `logIngestSchema`, `eventEntrySchema`, `eventIngestSchema`, `secretUpsertSchema`, `secretImportSchema`, `secretUpdateSchema`, `apiKeyCreateSchema`, `logQuerySchema`, `analyticsQuerySchema`, `userCreateSchema`, `userUpdateSchema`, `settingsUpdateSchema`, `loginSchema`, `MAX_META_BYTES`, `MAX_BODY_BYTES`, `MAX_LOG_BATCH`, `MAX_EVENT_BATCH`, `MAX_TS_AGE_MS`, `MAX_TS_FUTURE_MS` |
+| `lib/validation.ts` | Shared Zod schemas + ingest limits; actionable name/slug/URL messages and trimmed required project names; private `normalizeOptionalProjectSlug(value)` treats blank project-form slugs as omitted without weakening explicit slug validation | `slugSchema`, `linkSchema`, `projectCreateSchema`, `projectUpdateSchema`, `logEntrySchema`, `logIngestSchema`, `eventEntrySchema`, `eventIngestSchema`, `secretUpsertSchema`, `secretImportSchema`, `secretUpdateSchema`, `apiKeyCreateSchema`, `logQuerySchema`, `analyticsQuerySchema`, `userCreateSchema`, `userUpdateSchema`, `settingsUpdateSchema`, `loginSchema`, `MAX_META_BYTES`, `MAX_BODY_BYTES`, `MAX_LOG_BATCH`, `MAX_EVENT_BATCH`, `MAX_TS_AGE_MS`, `MAX_TS_FUTURE_MS` |
 | `lib/db/connect.ts` | Cached mongoose connection (serverless-safe) | `connectToDatabase`, `mongooseInstance`, `isDatabaseConnected`, `disconnectFromDatabase` |
 | `lib/db/users.ts` | `users` model (role, rank, overrides, permissionManagement scope) | `UserModel`, type `UserDoc` |
 | `lib/db/projects.ts` | `projects` model (status/tags/links/notes/github cache/kill switches) | `ProjectModel`, `PROJECT_STATUSES`, `LINK_TYPES`, types `ProjectStatus`/`LinkType`/`ProjectDoc` |
@@ -74,8 +75,9 @@ the client and analytics keys are deliberately public, kind-scoped ingest creden
 | `lib/db/events.ts` | `events` model (pageview/click/custom, 90d TTL) | `EventModel`, `EVENT_TYPES`, types `EventType`/`EventDoc` |
 | `lib/db/secrets.ts` | `secrets` (unique per project+env+key) and `secret_audit` (180d TTL) | `SecretModel`, `SecretAuditModel`, `ENVIRONMENTS`, types `Environment`/`SecretDoc`/`SecretAuditDoc` |
 | `lib/db/ops.ts` | `daily_stats` rollups, `rate_limits` (unique `(key, windowStart)`), `app_settings`, `login_attempts`, `audit_events` | `DailyStatModel`, `RateLimitModel`, `AppSettingModel`, `LoginAttemptModel`, `AuditEventModel`, `APP_SETTING_KEYS`, `LOG_TTL_DAYS`, `EVENT_TTL_DAYS`, `SECRET_AUDIT_TTL_DAYS`, `RATE_LIMIT_WINDOW_SECONDS` |
-| `lib/projects.ts` | Project service (slugify, unique slugs, regex-escaped search, cascade delete) | `slugify`, `listProjects`, `getProjectBySlug`, `getProjectById`, `createProject`, `updateProject`, `deleteProject`, `serializeProject`, types `ProjectInput`/`ProjectListFilters`/`ProjectSummary` |
+| `lib/projects.ts` | Project service (slugify, unique slugs, regex-escaped search, cascade delete); explicit conflicts throw `ProjectSlugConflictError`; edits skip collision checks for unchanged slugs and reject another project’s slug | `ProjectSlugConflictError.constructor`, `slugify`, `listProjects`, `getProjectBySlug`, `getProjectById`, `createProject`, `updateProject`, `deleteProject`, `serializeProject`, types `ProjectInput`/`ProjectListFilters`/`ProjectSummary` |
 | `lib/projectTypes.ts` | `PROJECT_STATUSES`, `LINK_TYPES` + types | the only project vocabulary the browser may import; deliberately imports nothing, because a value import from a module that also builds a mongoose model crashes the page in the browser |
+| `lib/projectForm.ts` | Browser-safe validation feedback; emits only field paths/reasons, maps nested links to visible draft rows, handles validation/auth/conflict/server failures without exposing internal errors | `projectValidationFailure`, private `projectFieldLabel`, `projectFailureMessages`, type `ProjectFieldError` |
 | `lib/keyForm.ts` | `buildKeyCreateBody`, `keyCreateFailureMessage` | decides what the create-key form may send; refuses a nameless key, an empty project list, or an unnamed project before the request is made; imports/re-exports the canonical `KeyKind` as a type only, keeping mongoose out of client bundles |
 | `lib/keyManagement.ts` | API key lifecycle | `createApiKey`, `listApiKeys`, `listAllApiKeys`, `revokeApiKey`, `deleteApiKey`, `generateVerifiableApiKey`, `isVerifiablePrefix`, `maskKeyPrefix`, `KeyError`, types `MaskedApiKey`/`CreatedApiKey`/`KeyInput` |
 | `lib/apiKeys.ts` | Key generation, constant-time verification, kind→scope rules | `generateApiKey`, `verifyApiKey`, `hashKey`, `keyPrefixOf`, `kindCanWriteLogs`, `kindCanWriteEvents`, `sourceForKind`, `redactKey`, type `VerifiedKey`/`GeneratedKey` |
@@ -105,8 +107,8 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/api/auth/login/route.ts` | `POST` | public | readiness-gated (503 + missing names when unconfigured), env/bcrypt login, generic errors, 429 + `Retry-After` on lockout, sets the session cookie |
 | `app/api/auth/logout/route.ts` | `POST` | public | clears the cookie (`Max-Age=0`) |
 | `app/api/auth/session` | — | session | answered inside `proxy.ts` (principal + capabilities) |
-| `app/api/projects/route.ts` | `GET`/`POST` | `projects.view` / `projects.create` | list with escaped search, create with unique slug (including empty/whitespace form slugs) |
-| `app/api/projects/[slug]/route.ts` | `GET`/`PATCH`/`DELETE` | `projects.view` / `.edit` / `.delete` | delete cascades keys, secrets, logs, events, rollups, audits |
+| `app/api/projects/route.ts` | `GET`/`POST` | `projects.view` / `projects.create` | list with escaped search, create with unique slug (including empty/whitespace form slugs); authenticated validation failures expose field paths/reasons, malformed JSON gets `invalid_json`, slug conflicts get 409 |
+| `app/api/projects/[slug]/route.ts` | `GET`/`PATCH`/`DELETE` | `projects.view` / `.edit` / `.delete` | edit returns field-specific validation/JSON/409 conflict feedback; delete cascades keys, secrets, logs, events, rollups, audits |
 | `app/api/projects/[slug]/github/route.ts` | `POST` | `projects.edit` | refreshes repo metadata, audits |
 | `app/api/projects/[slug]/secrets/route.ts` | `GET`/`POST` | `secrets.view` / `secrets.edit` | masked list, upsert, `.env` import (`mode:"import"`) |
 | `app/api/projects/[slug]/secrets/export/route.ts` | `POST` | `secrets.export` (root admin) | type-to-confirm + password re-entry, audits, `no-store` download |
@@ -143,7 +145,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/(dash)/projects/page.tsx` + `components/projects/project-list.tsx` | Search, status filter, grid/table, create dialog, delete confirmation | `ProjectsPage`, `ProjectList` |
 | `app/(dash)/projects/[slug]/layout.tsx` | Project shell: header + permission-aware tabs | `ProjectLayout` |
 | `app/(dash)/projects/[slug]/page.tsx` | Overview: notes (safe markdown), links, ingest switches, quick links | `ProjectOverviewPage` |
-| `components/projects/project-form.tsx` | Create/edit dialog (slug, links, notes, repo) | `ProjectForm` |
+| `components/projects/project-form.tsx` | Create/edit dialog (slug, links, notes, repo), accessible validation error list with visible link-row numbers; distinct auth/conflict/server/network messages, always resets pending state | `ProjectForm`, nested `submit`, `Label2` |
 | `components/projects/project-header.tsx` | Emoji/status/tags/GitHub stats + refresh | `ProjectHeader` |
 | `components/projects/project-tabs.tsx` | Permission-filtered tabs | `ProjectTabs` |
 | `app/(dash)/projects/[slug]/env/page.tsx` + `components/secrets/secrets-panel.tsx` | Vault: env selector, masked values, 30 s reveal, copy, import/export dialogs, audit list | `SecretsPanel` |
@@ -202,7 +204,8 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `scripts/measure-log-delivery.mjs` (in consumer repos) | Measures requests-per-burst and client-side drop count |
 | `tests/unit/analytics.test.ts` | Visitor ids, bot table, ranges, rollup maths, origin check, tracker assertions |
 | `tests/integration/auth.test.ts` | Login policy, lockout, cookie flags, session bootstrap, proxy guard, fail-closed behaviour |
-| `tests/integration/projects.test.ts` | Projects CRUD, blank/whitespace auto-slug creation and uniqueness, invalid explicit slug rejection, blank-edit slug preservation, authorization, regex-injection, cascade, settings, users + delegation boundaries |
+| `tests/unit/project-form.test.ts` | Browser-safe error feedback: nested paths/visible rows, validation-only serialization, malformed responses, auth/conflict/server fallbacks |
+| `tests/integration/projects.test.ts` | Projects CRUD, create/edit actionable validation feedback, malformed JSON, missing/whitespace names, unchanged/renamed/conflicting slugs, validation authorization boundaries, blank/whitespace auto-slug creation and uniqueness, invalid explicit slug rejection, blank-edit slug preservation, authorization, regex-injection, cascade, settings, users + delegation boundaries |
 | `tests/integration/secrets.test.ts` | Vault routes: masking, reveal + audit, export guards, rotation + resume |
 | `tests/integration/ingest.test.ts` | Log ingest hardening matrix + viewer/export/SDK download |
 | `tests/integration/analytics.test.ts` | Event ingest hardening, rollups, summary authz, tracker route |

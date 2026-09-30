@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { authorize, errorResponse } from "@/lib/auth";
-import { createProject, listProjects, serializeProject } from "@/lib/projects";
+import { createProject, listProjects, serializeProject, ProjectSlugConflictError } from "@/lib/projects";
+import { projectValidationFailure } from "@/lib/projectForm";
 import { projectCreateSchema } from "@/lib/validation";
 
 export async function GET(request: NextRequest): Promise<Response> {
@@ -29,14 +30,14 @@ export async function POST(request: NextRequest): Promise<Response> {
       body = await request.json();
     } catch {
       return Response.json(
-        { error: "invalid_request" },
+        { error: "invalid_json" },
         { status: 400, headers: { "Cache-Control": "no-store" } },
       );
     }
     const parsed = projectCreateSchema.safeParse(body);
     if (!parsed.success) {
       return Response.json(
-        { error: "invalid_request", issues: parsed.error.issues.length },
+        projectValidationFailure(parsed.error.issues),
         { status: 400, headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -46,6 +47,12 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 201, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    if (error instanceof ProjectSlugConflictError) {
+      return Response.json(
+        { error: "slug_in_use" },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     return errorResponse(error);
   }
 }

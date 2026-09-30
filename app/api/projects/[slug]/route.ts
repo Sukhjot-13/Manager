@@ -1,10 +1,12 @@
 import type { NextRequest } from "next/server";
 import { authorize, errorResponse, notFound } from "@/lib/auth";
+import { projectValidationFailure } from "@/lib/projectForm";
 import {
   deleteProject,
   getProjectBySlug,
   serializeProject,
   updateProject,
+  ProjectSlugConflictError,
 } from "@/lib/projects";
 import { projectUpdateSchema } from "@/lib/validation";
 
@@ -42,14 +44,14 @@ export async function PATCH(
       body = await request.json();
     } catch {
       return Response.json(
-        { error: "invalid_request" },
+        { error: "invalid_json" },
         { status: 400, headers: { "Cache-Control": "no-store" } },
       );
     }
     const parsed = projectUpdateSchema.safeParse(body);
     if (!parsed.success) {
       return Response.json(
-        { error: "invalid_request", issues: parsed.error.issues.length },
+        projectValidationFailure(parsed.error.issues),
         { status: 400, headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -62,6 +64,12 @@ export async function PATCH(
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    if (error instanceof ProjectSlugConflictError) {
+      return Response.json(
+        { error: "slug_in_use" },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     return errorResponse(error);
   }
 }

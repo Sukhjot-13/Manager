@@ -183,3 +183,9 @@ Required, feature-specific and optional environment settings are now listed in R
 ## Implemented project-form fix — 2026-09-30
 
 The form offered automatic slugs when left blank, but its empty string failed the shared API schema and returned 400. Blank/whitespace project slugs now normalize to omitted, allowing automatic unique slugs on creation and preserving the existing slug on edit. Explicit malformed slugs remain rejected. Integration regressions exercise the actual route against isolated MongoDB.
+
+## Implemented project validation feedback — 2026-09-30
+
+Project create/edit failures now expose field paths and validation reasons instead of only an issue count. The form renders an accessible list with friendly field/link-row labels, distinguishes session/permission/conflict/server/network failures, and clears the saving state after failed requests. Missing/whitespace names and malformed JSON receive actionable feedback. The previous blanket “Slug already in use” for every server failure was misleading; actual conflicts now return 409. The edit collision query compared an ObjectId against a slug and ignored its result; unchanged slugs now save normally, and another project's slug is rejected. Changes remain local.
+
+Verification: 403/403 tests, lint and type checking passed. A production build with isolated synthetic configuration and 17/17 Chromium checks verified real UI login, simultaneous name/slug/link errors, corrected auto-slug creation, unchanged-slug editing, edit validation, and saving-state recovery for validation, simulated 500 and aborted network requests. The temporary database was destroyed and both server/browser stopped.
