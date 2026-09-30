@@ -4,7 +4,7 @@ One web app to manage every project: registry, centralized logging, an encrypted
 vault, GitHub links, and analytics. Single owner (plus optional extra users with roles),
 Next.js App Router, MongoDB Atlas, deployed on Vercel Hobby.
 
-> **Status: P0–P5 built.** 433 unit/integration tests + a 63-check production smoke test
+> **Status: P0–P5 built.** 438 unit/integration tests + a 63-check production smoke test
 > (`npm test`, `npm run test:e2e`).
 > Specification: [`docs/plan.md`](docs/plan.md) · inventory: [`docs/architecture.md`](docs/architecture.md)
 
@@ -477,3 +477,7 @@ db.logs.deleteMany({ ts: { $lt: new Date(Date.now() - 48 * 60 * 60 * 1000) } });
 Do not drop the collection: its indexes support the log viewer and automatic expiry.
 
 Navigation uses shared pending notices plus dashboard, project-section and settings loading screens. Sign out also shows progress and allows retry on failure.
+
+### Project links
+
+Open a project’s **Overview → Links → Add link** (or **Manage links**). Enter an HTTP/HTTPS URL, choose its type and optionally give it a label, then select **Save links**. You can save up to 20 links, edit or remove them later, and click any saved link to open it in a new tab. Editing links preserves the other project settings.

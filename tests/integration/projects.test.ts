@@ -85,6 +85,49 @@ describe("projects API authorization", () => {
 });
 
 describe("projects CRUD", () => {
+  it("saves multiple project links, reads them back and edits only links", async () => {
+    const initialLinks = [
+      { type: "live", url: "https://example.com/app?tab=home#top", label: "Open app" },
+      { type: "docs", url: "https://example.com/docs", label: "" },
+    ];
+    const created = await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie,
+      json({ name: "Project links", description: "Keep description", notesMd: "Keep notes", status: "live", tags: ["web"], emoji: "🔗", color: "#123456", githubRepo: "owner/repository", links: initialLinks })));
+    expect(created.status).toBe(201);
+    expect((await created.json()).project.links).toEqual(initialLinks);
+    const params = { params: Promise.resolve({ slug: "project-links" }) };
+    const fetched = await getProject(requestWithCookie(`${ORIGIN}/api/projects/project-links`, ownerCookie), params);
+    expect((await fetched.json()).project.links).toEqual(initialLinks);
+
+    const nextLinks = [{ type: "other", url: "http://localhost:3000/tools", label: "Local tools" }];
+    const edited = await patchProject(requestWithCookie(`${ORIGIN}/api/projects/project-links`, ownerCookie,
+      { ...json({ links: nextLinks }), method: "PATCH" }), params);
+    expect(edited.status).toBe(200);
+    expect((await edited.json()).project).toMatchObject({ links: nextLinks, description: "Keep description", notesMd: "Keep notes", name: "Project links", status: "live", tags: ["web"], emoji: "🔗", color: "#123456", githubRepo: "owner/repository" });
+    const cleared = await patchProject(requestWithCookie(`${ORIGIN}/api/projects/project-links`, ownerCookie,
+      { ...json({ links: [] }), method: "PATCH" }), params);
+    expect((await cleared.json()).project.links).toEqual([]);
+    expect((await ProjectModel.findOne({ slug: "project-links" }))?.notesMd).toBe("Keep notes");
+  });
+
+  it.each(["javascript:alert(1)", "data:text/html,hello", "ftp://example.com/file"])("rejects non-web project links: %s", async (url) => {
+    const response = await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie,
+      json({ name: "Unsafe link", links: [{ type: "other", url }] })));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ fieldErrors: [{ field: "links.0.url", message: "Use an http:// or https:// project URL." }] });
+    expect(await ProjectModel.countDocuments({})).toBe(0);
+  });
+
+  it("refuses a links-only edit for a reader and preserves saved URLs", async () => {
+    await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie,
+      json({ name: "Protected links", links: [{ type: "live", url: "https://example.com", label: "App" }] })));
+    const id = await seedUser({ email: "reader-links@example.com", role: "USER" });
+    const cookie = await authCookie({ id, email: "reader-links@example.com", role: "USER" });
+    const response = await patchProject(requestWithCookie(`${ORIGIN}/api/projects/protected-links`, cookie,
+      { ...json({ links: [] }), method: "PATCH" }), { params: Promise.resolve({ slug: "protected-links" }) });
+    expect(response.status).toBe(403);
+    expect((await ProjectModel.findOne({ slug: "protected-links" }))?.links).toHaveLength(1);
+  });
+
   it("creates, reads, updates and deletes a project", async () => {
     const created = await createProject(
       requestWithCookie(

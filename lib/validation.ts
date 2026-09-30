@@ -23,7 +23,9 @@ export const slugSchema = z
 
 export const linkSchema = z.object({
   type: z.enum(LINK_TYPES),
-  url: z.string().url("Enter a complete URL, e.g. https://example.com.").max(500),
+  url: z.string().url("Enter a complete URL, e.g. https://example.com.").max(500)
+    .refine((value) => !URL.canParse(value) || ["http:", "https:"].includes(new URL(value).protocol),
+      "Use an http:// or https:// project URL."),
   label: z.string().max(80).default(""),
 });
 
@@ -31,26 +33,37 @@ function normalizeOptionalProjectSlug(value: unknown): unknown {
   return typeof value === "string" && value.trim() === "" ? undefined : value;
 }
 
-export const projectCreateSchema = z.object({
+// Keep update validation free of creation defaults: a links-only PATCH must not
+// clear omitted notes, tags or other project settings.
+const projectFields = {
   name: z.string({ error: "Enter a project name." }).trim().min(1, "Enter a project name.").max(80, "Use 80 characters or fewer."),
-  // The project form submits an empty string for its optional slug input.
   slug: z.preprocess(normalizeOptionalProjectSlug, slugSchema.optional()),
-  description: z.string().max(1000).default(""),
-  status: z.enum(PROJECT_STATUSES).default("idea"),
-  tags: z.array(z.string().max(30)).max(20).default([]),
-  color: z.string().max(20).default("#6366f1"),
-  emoji: z.string().max(8).default("📁"),
-  links: z.array(linkSchema).max(20).default([]),
-  notesMd: z.string().max(20_000).default(""),
-  githubRepo: z.string().max(200).default(""),
+  description: z.string().max(1000),
+  status: z.enum(PROJECT_STATUSES),
+  tags: z.array(z.string().max(30)).max(20),
+  color: z.string().max(20),
+  emoji: z.string().max(8),
+  links: z.array(linkSchema).max(20),
+  notesMd: z.string().max(20_000),
+  githubRepo: z.string().max(200),
+};
+
+export const projectCreateSchema = z.object({
+  ...projectFields,
+  description: projectFields.description.default(""),
+  status: projectFields.status.default("idea"),
+  tags: projectFields.tags.default([]),
+  color: projectFields.color.default("#6366f1"),
+  emoji: projectFields.emoji.default("📁"),
+  links: projectFields.links.default([]),
+  notesMd: projectFields.notesMd.default(""),
+  githubRepo: projectFields.githubRepo.default(""),
 });
 
-export const projectUpdateSchema = projectCreateSchema
-  .partial()
-  .extend({
-    ingestEnabled: z.boolean().optional(),
-    analyticsEnabled: z.boolean().optional(),
-  });
+export const projectUpdateSchema = z.object(projectFields).partial().extend({
+  ingestEnabled: z.boolean().optional(),
+  analyticsEnabled: z.boolean().optional(),
+});
 
 const jsonish = z.union([
   z.string().max(MAX_META_BYTES),

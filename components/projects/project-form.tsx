@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
@@ -16,14 +16,17 @@ type LinkDraft = { type: string; url: string; label: string };
 export function ProjectForm({
   project,
   trigger = "button",
+  linksOnly = false,
 }: {
   project?: ProjectSummary;
   trigger?: "button" | "inline";
+  linksOnly?: boolean;
 }) {
   const router = useRouter();
   const { push } = useToast();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const saving = useRef(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [name, setName] = useState(project?.name ?? "");
   const [slug, setSlug] = useState(project?.slug ?? "");
@@ -35,14 +38,21 @@ export function ProjectForm({
   const [githubRepo, setGithubRepo] = useState(project?.githubRepo ?? "");
   const [notesMd, setNotesMd] = useState(project?.notesMd ?? "");
   const [links, setLinks] = useState<LinkDraft[]>(
-    project?.links.map((link) => ({ ...link })) ?? [],
+    project?.links.length
+      ? project.links.map((link) => ({ ...link }))
+      : linksOnly ? [{ type: "live", url: "", label: "" }] : [],
   );
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving.current) return;
+    saving.current = true;
     setPending(true);
     setErrors([]);
-    const payload = {
+    const linkPayload = links
+      .filter((link) => link.url.trim() !== "")
+      .map((link) => ({ type: link.type, url: link.url.trim(), label: link.label.trim() }));
+    const payload = linksOnly ? { links: linkPayload } : {
       name: name.trim(),
       slug: slug.trim(),
       description: description.trim(),
@@ -55,13 +65,7 @@ export function ProjectForm({
       color,
       githubRepo: githubRepo.trim(),
       notesMd,
-      links: links
-        .filter((link) => link.url.trim() !== "")
-        .map((link) => ({
-          type: link.type,
-          url: link.url.trim(),
-          label: link.label.trim(),
-        })),
+      links: linkPayload,
     };
     try {
       const response = await fetch(
@@ -75,7 +79,7 @@ export function ProjectForm({
       if (response.ok) {
         const body = (await response.json()) as { project: ProjectSummary };
         setOpen(false);
-        push(project === undefined ? "Project created" : "Project updated", "success");
+        push(linksOnly ? "Project links saved" : project === undefined ? "Project created" : "Project updated", "success");
         router.push(`/projects/${body.project.slug}`);
         router.refresh();
         return;
@@ -87,175 +91,193 @@ export function ProjectForm({
     } catch {
       setErrors(["Could not connect to the server. Check your connection and try again."]);
     } finally {
+      saving.current = false;
       setPending(false);
     }
   }
 
   const fields = (
     <form onSubmit={submit} className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Name" htmlFor="project-name">
-          <Input
-            id="project-name"
-            required
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-        <Field label="Slug" htmlFor="project-slug" hint="Leave blank to auto-generate">
-          <Input
-            id="project-slug"
-            value={slug}
-            onChange={(event) => setSlug(event.target.value)}
-          />
-        </Field>
-        <Field label="Status" htmlFor="project-status">
-          <Select
-            id="project-status"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            {PROJECT_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Tags" htmlFor="project-tags" hint="Comma separated tech stack">
-          <Input
-            id="project-tags"
-            value={tags}
-            onChange={(event) => setTags(event.target.value)}
-          />
-        </Field>
-        <Field label="Emoji" htmlFor="project-emoji">
-          <Input
-            id="project-emoji"
-            value={emoji}
-            onChange={(event) => setEmoji(event.target.value)}
-          />
-        </Field>
-        <Field label="Color" htmlFor="project-color">
-          <Input
-            id="project-color"
-            type="color"
-            value={color}
-            onChange={(event) => setColor(event.target.value)}
-          />
-        </Field>
-      </div>
-      <Field label="Description" htmlFor="project-description">
-        <Textarea
-          id="project-description"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-      </Field>
-      <Field
-        label="GitHub repository"
-        htmlFor="project-github"
-        hint="owner/repo or a full URL — used for stars, issues and last push"
-      >
-        <Input
-          id="project-github"
-          value={githubRepo}
-          onChange={(event) => setGithubRepo(event.target.value)}
-          placeholder="Sukhjot-13/Manager"
-        />
-      </Field>
-      <div>
-        <Label2>Links</Label2>
-        <div className="space-y-2">
-          {links.map((link, index) => (
-            <div key={index} className="flex gap-2">
-              <Select
-                value={link.type}
-                onChange={(event) =>
-                  setLinks((current) =>
-                    current.map((entry, position) =>
-                      position === index ? { ...entry, type: event.target.value } : entry,
-                    ),
-                  )
-                }
-                className="w-28"
-              >
-                {LINK_TYPES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </Select>
-              <Input
-                value={link.url}
-                placeholder="https://"
-                onChange={(event) =>
-                  setLinks((current) =>
-                    current.map((entry, position) =>
-                      position === index ? { ...entry, url: event.target.value } : entry,
-                    ),
-                  )
-                }
-              />
-              <Input
-                value={link.label}
-                placeholder="label"
-                className="w-32"
-                onChange={(event) =>
-                  setLinks((current) =>
-                    current.map((entry, position) =>
-                      position === index ? { ...entry, label: event.target.value } : entry,
-                    ),
-                  )
-                }
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() =>
-                  setLinks((current) => current.filter((_, position) => position !== index))
-                }
-                aria-label="Remove link"
-              >
-                ×
-              </Button>
+      <fieldset disabled={pending} className="space-y-4">
+        {!linksOnly ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Name" htmlFor="project-name">
+                <Input
+                  id="project-name"
+                  required
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </Field>
+              <Field label="Slug" htmlFor="project-slug" hint="Leave blank to auto-generate">
+                <Input
+                  id="project-slug"
+                  value={slug}
+                  onChange={(event) => setSlug(event.target.value)}
+                />
+              </Field>
+              <Field label="Status" htmlFor="project-status">
+                <Select
+                  id="project-status"
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value)}
+                >
+                  {PROJECT_STATUSES.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Tags" htmlFor="project-tags" hint="Comma separated tech stack">
+                <Input
+                  id="project-tags"
+                  value={tags}
+                  onChange={(event) => setTags(event.target.value)}
+                />
+              </Field>
+              <Field label="Emoji" htmlFor="project-emoji">
+                <Input
+                  id="project-emoji"
+                  value={emoji}
+                  onChange={(event) => setEmoji(event.target.value)}
+                />
+              </Field>
+              <Field label="Color" htmlFor="project-color">
+                <Input
+                  id="project-color"
+                  type="color"
+                  value={color}
+                  onChange={(event) => setColor(event.target.value)}
+                />
+              </Field>
             </div>
-          ))}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setLinks((current) => [...current, { type: "github", url: "", label: "" }])
-            }
-          >
-            <Plus size={12} />
-            Add link
+            <Field label="Description" htmlFor="project-description">
+              <Textarea
+                id="project-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </Field>
+            <Field
+              label="GitHub repository"
+              htmlFor="project-github"
+              hint="owner/repo or a full URL — used for stars, issues and last push"
+            >
+              <Input
+                id="project-github"
+                value={githubRepo}
+                onChange={(event) => setGithubRepo(event.target.value)}
+                placeholder="Sukhjot-13/Manager"
+              />
+            </Field>
+          </>
+        ) : null}
+        <div>
+          <Label2>Project links</Label2>
+          <p className="mb-3 text-xs text-zinc-500">Save a website, repository or documentation URL. Saved links open in a new tab.</p>
+          <div className="space-y-2">
+            {links.map((link, index) => (
+              <div key={index} className="grid gap-2 rounded-md border border-zinc-200 p-2 sm:flex dark:border-zinc-800">
+                <Select
+                  aria-label={`Link ${index + 1} type`}
+                  value={link.type}
+                  onChange={(event) =>
+                    setLinks((current) =>
+                      current.map((entry, position) =>
+                        position === index ? { ...entry, type: event.target.value } : entry,
+                      ),
+                    )
+                  }
+                  className="sm:w-28"
+                >
+                  {LINK_TYPES.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  type="url"
+                  aria-label={`Link ${index + 1} URL`}
+                  autoFocus={linksOnly && index === 0}
+                  required={(linksOnly && links.length === 1) || link.label.trim() !== ""}
+                  maxLength={500}
+                  value={link.url}
+                  placeholder="https://example.com"
+                  onChange={(event) =>
+                    setLinks((current) =>
+                      current.map((entry, position) =>
+                        position === index ? { ...entry, url: event.target.value } : entry,
+                      ),
+                    )
+                  }
+                />
+                <Input
+                  aria-label={`Link ${index + 1} label (optional)`}
+                  value={link.label}
+                  placeholder="Label (optional)"
+                  maxLength={80}
+                  className="sm:w-32"
+                  onChange={(event) =>
+                    setLinks((current) =>
+                      current.map((entry, position) =>
+                        position === index ? { ...entry, label: event.target.value } : entry,
+                      ),
+                    )
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() =>
+                    setLinks((current) => current.filter((_, position) => position !== index))
+                  }
+                  aria-label={`Remove link ${index + 1}`}
+                >
+                  ×
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={links.length >= 20}
+              onClick={() =>
+                setLinks((current) => [...current, { type: "live", url: "", label: "" }])
+              }
+            >
+              <Plus size={12} />
+              Add link
+            </Button>
+          </div>
+        </div>
+        {!linksOnly ? <Field label="Notes" htmlFor="project-notes" hint="Markdown — changelog, reminders, TODOs">
+          <Textarea
+            id="project-notes"
+            className="min-h-40 font-mono text-xs"
+            value={notesMd}
+            onChange={(event) => setNotesMd(event.target.value)}
+          />
+        </Field> : null}
+        {errors.length > 0 ? (
+          <div role="alert" className="text-sm text-red-600 dark:text-red-400">
+            <ul className="list-disc space-y-1 pl-5">
+              {errors.map((message) => <li key={message}>{message}</li>)}
+            </ul>
+          </div>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={pending} aria-busy={pending}>
+            {pending ? <Loader2 size={14} aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null}
+            {pending ? "Saving…" : linksOnly ? "Save links" : project === undefined ? "Create project" : "Save changes"}
           </Button>
         </div>
-      </div>
-      <Field label="Notes" htmlFor="project-notes" hint="Markdown — changelog, reminders, TODOs">
-        <Textarea
-          id="project-notes"
-          className="min-h-40 font-mono text-xs"
-          value={notesMd}
-          onChange={(event) => setNotesMd(event.target.value)}
-        />
-      </Field>
-      {errors.length > 0 ? (
-        <div role="alert" className="text-sm text-red-600 dark:text-red-400">
-          <ul className="list-disc space-y-1 pl-5">
-            {errors.map((message) => <li key={message}>{message}</li>)}
-          </ul>
-        </div>
-      ) : null}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : project === undefined ? "Create project" : "Save changes"}
-        </Button>
-      </div>
+      </fieldset>
     </form>
   );
 
@@ -267,12 +289,12 @@ export function ProjectForm({
     <>
       <Button onClick={() => setOpen(true)} variant={project === undefined ? "primary" : "outline"}>
         <Plus size={14} />
-        {project === undefined ? "New project" : "Edit"}
+        {linksOnly ? project?.links.length ? "Manage links" : "Add link" : project === undefined ? "New project" : "Edit"}
       </Button>
       <Dialog
         open={open}
-        onClose={() => setOpen(false)}
-        title={project === undefined ? "New project" : `Edit ${project.name}`}
+        onClose={() => { if (!saving.current) setOpen(false); }}
+        title={linksOnly ? "Project links" : project === undefined ? "New project" : `Edit ${project.name}`}
         wide
       >
         {fields}

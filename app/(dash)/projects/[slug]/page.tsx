@@ -1,4 +1,5 @@
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
+import { ExternalLink } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +35,7 @@ export default async function ProjectOverviewPage({
           <CardHeader>
             <CardTitle>Notes</CardTitle>
             <PermissionGate permission="projects.edit">
-              <ProjectForm project={summary} />
+              <ProjectForm key={`project-${project.updatedAt.toISOString()}`} project={summary} />
             </PermissionGate>
           </CardHeader>
           <CardContent>
@@ -53,22 +54,28 @@ export default async function ProjectOverviewPage({
         <Card>
           <CardHeader>
             <CardTitle>Links</CardTitle>
+            <PermissionGate permission="projects.edit">
+              <ProjectForm key={`links-${project.updatedAt.toISOString()}`} project={summary} linksOnly />
+            </PermissionGate>
           </CardHeader>
           <CardContent>
             {summary.links.length === 0 ? (
-              <p className="text-sm text-zinc-500">No links yet.</p>
+              <p className="text-sm text-zinc-500">No project links saved yet.</p>
             ) : (
               <ul className="space-y-2">
-                {summary.links.map((link) => (
-                  <li key={`${link.type}-${link.url}`} className="flex items-center gap-2 text-sm">
+                {summary.links.map((link, index) => (
+                  <li key={`${index}-${link.type}-${link.url}`} className="flex min-w-0 items-center gap-2 text-sm">
                     <Badge>{link.type}</Badge>
                     <a
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="truncate text-zinc-700 hover:underline dark:text-zinc-300"
+                      title={`${link.url} (opens in a new tab)`}
+                      className="inline-flex min-w-0 items-center gap-1 text-zinc-700 hover:underline dark:text-zinc-300"
                     >
-                      {link.label === "" ? link.url : link.label}
+                      <span className="truncate">{link.label === "" ? link.url : link.label}</span>
+                      <ExternalLink size={13} aria-hidden="true" className="shrink-0" />
+                      <span className="sr-only"> (opens in a new tab)</span>
                     </a>
                   </li>
                 ))}
