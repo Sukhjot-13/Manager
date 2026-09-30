@@ -3,6 +3,15 @@ import crypto from "node:crypto";
 const IV_BYTES = 12;
 const ALGORITHM = "aes-256-gcm";
 
+export class VaultConfigurationError extends Error {
+  constructor(reason: "missing" | "invalid") {
+    super(reason === "missing"
+      ? "Manager's ENV_MASTER_KEY is missing. Restore the existing vault key in the production environment and redeploy."
+      : "Manager's ENV_MASTER_KEY must contain exactly 64 hexadecimal characters. Restore the existing vault key in the production environment and redeploy.");
+    this.name = "VaultConfigurationError";
+  }
+}
+
 export type EncryptedValue = {
   valueEnc: string;
   iv: string;
@@ -10,16 +19,16 @@ export type EncryptedValue = {
   keyVer: number;
 };
 
+export function vaultKeyStatus(): "ready" | "missing" | "invalid" {
+  const value = process.env.ENV_MASTER_KEY?.trim() ?? "";
+  if (!value) return "missing";
+  return /^[0-9a-fA-F]{64}$/.test(value) ? "ready" : "invalid";
+}
+
 function masterKeyBytes(): Buffer {
-  const raw = process.env.ENV_MASTER_KEY;
-  if (raw === undefined || raw.trim() === "") {
-    throw new Error("Missing required environment variable: ENV_MASTER_KEY");
-  }
-  const hex = raw.trim();
-  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-    throw new Error("ENV_MASTER_KEY must be 64 hex characters (32 bytes)");
-  }
-  return Buffer.from(hex, "hex");
+  const status = vaultKeyStatus();
+  if (status !== "ready") throw new VaultConfigurationError(status);
+  return Buffer.from(process.env.ENV_MASTER_KEY!.trim(), "hex");
 }
 
 export function encrypt(plaintext: string, keyVer = 1): EncryptedValue {

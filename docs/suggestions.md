@@ -4,6 +4,7 @@
 > **open/parked items only**, plus the closed security/audit log.
 
 ## 🟢 Improvements
+- 2026-09-30 — **Implemented: vault import failure diagnostics.** Encryption is validated before saving; configuration failures return 503, all-failed writes return 500, database failures report safe per-key reasons and sanitized runtime classifications. Dialog preserves input and shows persistent errors; partial saves refresh the list. Vault dates now use an explicit project timezone and stable format to prevent server/browser hydration mismatches.
 - 2026-09-30 — **Implemented: Integrate tab synchronized with README.** Added JS/TS downloads, separate channel keys/env, cached optional server setup with Next.js `after`, browser provider and independent analytics, a usable tracker tag from a pasted existing key, verification and troubleshooting. Generated examples have execution regressions; invalid/wrong-kind key text stays out of commands.
 - 2026-09-29 — **Implemented: reusable integration guide.** README now covers key placement,
   JS/TS vendoring, static public env reads, isolated request traces, serverless completion,

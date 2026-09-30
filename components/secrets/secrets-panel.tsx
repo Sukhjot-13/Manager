@@ -12,6 +12,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { formatVaultTimestamp, importFailureMessages } from "@/lib/vaultFeedback";
 import { parseEnvFile, readEnvImportFile } from "@/lib/envImport";
 import { PermissionGate } from "@/components/permission-gate";
 import { Badge } from "@/components/ui/badge";
@@ -75,10 +76,12 @@ export function SecretsPanel({
   projectSlug,
   initialSecrets,
   initialAudit,
+  timeZone = "UTC",
 }: {
   projectSlug: string;
   initialSecrets: MaskedSecret[];
   initialAudit: AuditRow[];
+  timeZone?: string;
 }) {
   const { push } = useToast();
   const [secrets, setSecrets] = useState<MaskedSecret[]>(initialSecrets);
@@ -100,6 +103,7 @@ export function SecretsPanel({
   const [importEnvironment, setImportEnvironment] = useState<EnvironmentName>("dev");
   const [importContent, setImportContent] = useState("");
   const [importFileError, setImportFileError] = useState("");
+  const [importSaveErrors, setImportSaveErrors] = useState<string[]>([]);
   const [importFileLoading, setImportFileLoading] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importDragActive, setImportDragActive] = useState(false);
@@ -113,6 +117,7 @@ export function SecretsPanel({
     setImportOpen(false);
     setImportContent("");
     setImportFileError("");
+    setImportSaveErrors([]);
     setImportFileLoading(false);
     setImportDragActive(false);
   }
@@ -121,6 +126,7 @@ export function SecretsPanel({
     const version = ++importReadVersion.current;
     setImportFileLoading(true);
     setImportFileError("");
+    setImportSaveErrors([]);
     try {
       const content = await readEnvImportFile(files);
       if (version === importReadVersion.current) setImportContent(content);
@@ -343,6 +349,7 @@ export function SecretsPanel({
   async function runImport(): Promise<void> {
     if (!importReady) return;
     setImportBusy(true);
+    setImportSaveErrors([]);
     try {
       const response = await fetch(base, {
         method: "POST",
@@ -355,7 +362,9 @@ export function SecretsPanel({
       });
       const payload: unknown = await response.json();
       if (!response.ok) {
-        push(errorMessage(payload, "import failed"), "error");
+        const messages = importFailureMessages(payload);
+        setImportSaveErrors(messages);
+        push(messages[0], "error");
         return;
       }
       const result = payload as {
@@ -369,11 +378,16 @@ export function SecretsPanel({
         }`,
         result.errors.length > 0 || result.skipped > 0 ? "error" : "success",
       );
-      if (result.errors.length > 0 || result.skipped > 0) return;
+      if (result.imported > 0) await refresh(environment);
+      if (result.errors.length > 0 || result.skipped > 0) {
+        setImportSaveErrors(importFailureMessages(result));
+        return;
+      }
       closeImport();
-      await refresh(environment);
     } catch {
-      push("import failed", "error");
+      const message = "Import could not finish. Check your connection and refresh the vault before retrying.";
+      setImportSaveErrors([message]);
+      push(message, "error");
     } finally {
       setImportBusy(false);
     }
@@ -556,9 +570,7 @@ export function SecretsPanel({
                         </TD>
                         <TD className="text-xs text-zinc-500">{secret.note}</TD>
                         <TD className="text-xs text-zinc-500">
-                          {secret.updatedAt === null
-                            ? "—"
-                            : new Date(secret.updatedAt).toLocaleString()}
+                          {formatVaultTimestamp(secret.updatedAt, timeZone)}
                         </TD>
                         <TD>
                           <div className="flex items-center justify-end gap-1">
@@ -665,9 +677,7 @@ export function SecretsPanel({
                     <span className="text-zinc-400">{row.ip}</span>
                   )}
                   <span className="ml-auto text-zinc-400">
-                    {row.ts === null
-                      ? "—"
-                      : new Date(row.ts).toLocaleString()}
+                    {formatVaultTimestamp(row.ts, timeZone)}
                   </span>
                 </li>
               ))}
@@ -850,6 +860,14 @@ export function SecretsPanel({
             </Field>
             <p className="mt-2 text-xs text-zinc-500">.env files only · UTF-8 text · up to 200 KB</p>
           </div>
+          {importSaveErrors.length > 0 ? (
+            <div role="alert" className="space-y-1 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+              <p className="font-medium">Import could not save all keys. Your contents are kept for retry.</p>
+              <ul className="max-h-40 list-inside list-disc overflow-y-auto">
+                {importSaveErrors.map((message, index) => <li key={index}>{message}</li>)}
+              </ul>
+            </div>
+          ) : null}
           {importFileError ? <p role="alert" className="text-xs text-red-600 dark:text-red-400">{importFileError}</p> : null}
           {importFileLoading ? <p role="status" className="text-xs text-zinc-500">Reading .env file…</p> : null}
           <Field label="Or paste .env contents" htmlFor="import-content">
@@ -865,6 +883,7 @@ export function SecretsPanel({
                 importReadVersion.current += 1;
                 setImportFileLoading(false);
                 setImportFileError("");
+                setImportSaveErrors([]);
                 setImportContent(event.target.value);
               }}
               placeholder={'VAR_NAME="Value"\nAPI_KEY="value=with#symbols"\n# comment'}

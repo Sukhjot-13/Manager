@@ -11,6 +11,7 @@ import {
 } from "@/lib/secrets";
 import { clientIp } from "@/lib/visitor";
 import { MAX_IMPORT_BYTES } from "@/lib/envImport";
+import { VaultConfigurationError } from "@/lib/crypto";
 
 type Context = { params: Promise<{ slug: string }> };
 
@@ -114,7 +115,10 @@ export async function POST(
         actor: principal.email,
         ip,
       });
-      return Response.json(result, { headers: NO_STORE });
+      return Response.json(result, {
+        status: result.imported === 0 && result.skipped > 0 ? 500 : 200,
+        headers: NO_STORE,
+      });
     }
 
     const parsed = secretUpsertInputSchema.safeParse(record);
@@ -133,6 +137,13 @@ export async function POST(
     });
     return Response.json({ secret }, { headers: NO_STORE });
   } catch (error) {
+    if (error instanceof VaultConfigurationError) {
+      console.error("[vault.import] encryption unavailable", { code: "vault_not_configured" });
+      return Response.json(
+        { error: "vault_not_configured", message: error.message },
+        { status: 503, headers: NO_STORE },
+      );
+    }
     return errorResponse(error);
   }
 }

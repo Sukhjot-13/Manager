@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { requirePrincipalFromCookieStore } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getProjectBySlug } from "@/lib/projects";
+import { appTimezone } from "@/lib/env";
 import { auditTrail, listSecrets } from "@/lib/secrets";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,7 @@ export default async function ProjectEnvPage({
         projectSlug={project.slug}
         initialSecrets={secrets}
         initialAudit={audit}
+        timeZone={appTimezone()}
       />
     </div>
   );

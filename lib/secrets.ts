@@ -279,17 +279,42 @@ export async function importEnvFile(
   requireObjectId(projectId, "projectId");
   await connectToDatabase();
   const { entries, errors } = parseEnvFile(content);
+  // Validate encryption once before attempting any writes. Configuration failures
+  // must reach the API instead of being counted as a skipped key for every row.
+  if (entries.length > 0) encrypt("vault-import-preflight", CURRENT_KEY_VER);
   let imported = 0;
   let skipped = 0;
   for (const entry of entries) {
     try {
       await upsertSecret(projectId, { environment, key: entry.key, value: entry.value });
       imported += 1;
-    } catch {
+    } catch (error) {
       skipped += 1;
+      const failure = secretWriteFailure(error);
+      errors.push(`${entry.key}: ${failure.message}`);
+      // Raw database errors can include values/connection details. Log only the
+      // classification needed to diagnose this write in runtime logs.
+      console.error("[vault.import] save failed", {
+        projectId, environment, key: entry.key, code: failure.code,
+      });
     }
   }
   return { imported, skipped, errors };
+}
+
+function secretWriteFailure(error: unknown): { code: string; message: string } {
+  const record = error !== null && typeof error === "object"
+    ? error as { code?: unknown; name?: unknown } : {};
+  if (record.code === 11000) {
+    return { code: "index_conflict", message: "Database index conflict. Check the vault's unique index for project, environment and key." };
+  }
+  if (record.code === 13 || record.code === 18) {
+    return { code: "database_access_denied", message: "The database user cannot save vault secrets. Check its write access to Manager's database." };
+  }
+  if (record.name === "ValidationError") {
+    return { code: "database_validation", message: "The database rejected this secret. Check the vault schema and key/value limits." };
+  }
+  return { code: "database_write_failed", message: "Could not save this secret. Check Manager's runtime logs and database write availability, then retry." };
 }
 
 export async function logSecretAction(input: SecretActionInput): Promise<void> {

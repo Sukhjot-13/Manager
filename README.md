@@ -4,7 +4,7 @@ One web app to manage every project: registry, centralized logging, an encrypted
 vault, GitHub links, and analytics. Single owner (plus optional extra users with roles),
 Next.js App Router, MongoDB Atlas, deployed on Vercel Hobby.
 
-> **Status: P0–P5 built.** 421 unit/integration tests + a 63-check production smoke test
+> **Status: P0–P5 built.** 429 unit/integration tests + a 63-check production smoke test
 > (`npm test`, `npm run test:e2e`).
 > Specification: [`docs/plan.md`](docs/plan.md) · inventory: [`docs/architecture.md`](docs/architecture.md)
 

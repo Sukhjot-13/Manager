@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import mongoose from "mongoose";
 import { NextRequest } from "next/server";
 import {
@@ -108,6 +108,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   process.env.ENV_MASTER_KEY = originalMasterKey;
+  vi.restoreAllMocks();
 });
 
 afterAll(async () => {
@@ -379,6 +380,41 @@ URL=https://example.test/?a=1&b=2 # note`;
     if (exported === null) throw new Error("expected a readable export");
     expect(await importEnvFile(projectId, "dev", exported)).toEqual({ imported: 3, skipped: 0, errors: [] });
     expect(await values("dev")).toEqual(expected);
+  });
+
+  it.each(["", "change-me-64-hex-chars"])("reports an unusable vault master key instead of silently skipping all 15 entries (%s)", async (key) => {
+    process.env.ENV_MASTER_KEY = key;
+    const content = Array.from({ length: 15 }, (_, index) => `KEY_${index}="value_${index}"`).join("\n");
+    const response = await upsertViaApi(ownerCookie, { mode: "import", environment: "dev", content });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "vault_not_configured", message: expect.stringContaining("ENV_MASTER_KEY") });
+    expect(await SecretModel.countDocuments()).toBe(0);
+    process.env.ENV_MASTER_KEY = originalMasterKey;
+    const retry = await upsertViaApi(ownerCookie, { mode: "import", environment: "dev", content });
+    expect(await retry.json()).toEqual({ imported: 15, skipped: 0, errors: [] });
+  });
+
+  it("reports safe per-key database failures and never treats an all-failed import as success", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const query = { lean: vi.fn().mockRejectedValue(Object.assign(new Error("private-db-detail value_under_test"), { code: 11000, name: "MongoServerError" })) };
+    vi.spyOn(SecretModel, "findOneAndUpdate").mockReturnValue(query as never);
+    const response = await upsertViaApi(ownerCookie, { mode: "import", environment: "dev", content: "FIRST=value_under_test\nSECOND=another_value" });
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result).toMatchObject({ imported: 0, skipped: 2, errors: [expect.stringContaining("FIRST"), expect.stringContaining("SECOND")] });
+    expect(result.errors[0]).toContain("index conflict");
+    expect(JSON.stringify(result)).not.toContain("value_under_test");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("private-db-detail");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("value_under_test");
+  });
+
+  it("reports partial saves accurately and still stores the remaining keys", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(SecretModel, "findOneAndUpdate").mockImplementationOnce(() => ({ lean: async () => { throw Object.assign(new Error("private failure"), { code: 13 }); } }) as never);
+    const response = await upsertViaApi(ownerCookie, { mode: "import", environment: "dev", content: "DENIED=first\nSAVED=second" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ imported: 1, skipped: 1, errors: [expect.stringContaining("database user") ] });
+    expect(await SecretModel.countDocuments({ key: "SAVED" })).toBe(1);
   });
 
   it("rejects imports over the UTF-8 byte limit before writing any keys", async () => {

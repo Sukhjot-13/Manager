@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { decrypt, encrypt, maskValue, randomHex } from "@/lib/crypto";
+import { decrypt, encrypt, maskValue, randomHex, vaultKeyStatus } from "@/lib/crypto";
 import {
   ROLES,
   can,
@@ -112,6 +112,18 @@ describe("parseEnvFile", () => {
 });
 
 describe("secret value crypto", () => {
+  it("reports vault configuration status without exposing its value", () => {
+    try {
+      process.env.ENV_MASTER_KEY = "";
+      expect(vaultKeyStatus()).toBe("missing");
+      process.env.ENV_MASTER_KEY = "change-me-64-hex-chars";
+      expect(vaultKeyStatus()).toBe("invalid");
+      process.env.ENV_MASTER_KEY = MASTER_KEY;
+      expect(vaultKeyStatus()).toBe("ready");
+    } finally {
+      process.env.ENV_MASTER_KEY = MASTER_KEY;
+    }
+  });
   it("round-trips a value through encrypt and decrypt", () => {
     const payload = encrypt("sk-live-abcdef0123456789", 1);
     expect(decrypt(payload)).toBe("sk-live-abcdef0123456789");
