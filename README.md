@@ -4,7 +4,7 @@ One web app to manage every project: registry, centralized logging, an encrypted
 vault, GitHub links, and analytics. Single owner (plus optional extra users with roles),
 Next.js App Router, MongoDB Atlas, deployed on Vercel Hobby.
 
-> **Status: P0–P5 built.** 382 unit/integration tests + a 63-check production smoke test
+> **Status: P0–P5 built.** 421 unit/integration tests + a 63-check production smoke test
 > (`npm test`, `npm run test:e2e`).
 > Specification: [`docs/plan.md`](docs/plan.md) · inventory: [`docs/architecture.md`](docs/architecture.md)
 
@@ -143,7 +143,7 @@ client and analytics keys. Old keys from another Manager database do not authent
 ## Features
 
 - **Projects hub** — CRUD, statuses, tags, emoji/colour, links, markdown notes, search, grid/table views, optional GitHub enrichment (stars, open issues, default branch, last push).
-- **Secrets vault** — AES-256-GCM per project **and** environment, fresh 12-byte IV per write, masked lists, 👁 reveal that auto re-masks after 30 s, every reveal/copy/export audited, `.env` import/export guarded by type-to-confirm + password re-entry, resumable master-key rotation.
+- **Secrets vault** — AES-256-GCM per project **and** environment, fresh 12-byte IV per write, masked lists, 👁 reveal that auto re-masks after 30 s, every reveal/copy/export audited, `.env` file drop/picker or multiline paste with parsed-key preview and validation; exports guarded by type-to-confirm + password re-entry, resumable master-key rotation.
 - **Logger** — API keys per project (`mlk_` server, `mck_` client, `mak_` analytics), hardened ingest (Zod whitelist, 128 KB cap, batch caps, replay guard, key-kind scoping, two-layer rate limits, kill switches, fingerprint dedupe), viewer with All/Server/Client tabs, trace correlation, error grouping, live tail, CSV/JSON export (formula-injection safe), and a zero-dependency isomorphic SDK you vendor into any app.
 - **Analytics** — one `<script>` tag per site: pageviews (SPA-aware), auto click maps, custom events, referrers/UTM, devices/browsers/OS, countries, live "active now", lazy daily rollups.
 - **Access control** — named permissions resolved server-side, root admin (rank 0) with permanent full access, per-user allow/deny overrides, delegated permission managers bounded by rank **and** an explicit permission ceiling, audit log for every sensitive change.
@@ -152,7 +152,9 @@ client and analytics keys. Old keys from another Manager database do not authent
 
 Start by creating a project in Manager, then open **Project → API keys**. Copy each key
 when it is created: Manager stores a hash and cannot show the full key again. The
-**Integrate** page provides copy buttons after you paste your key into that tab.
+**Integrate** page follows this guide: paste separate server, client and analytics keys
+to fill the JS/TS downloads, environment block, server helper, browser provider and tracker
+examples. Keys stay in the current tab only.
 
 | Key | Where it belongs | What it can write |
 |---|---|---|

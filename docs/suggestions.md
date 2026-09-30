@@ -4,6 +4,7 @@
 > **open/parked items only**, plus the closed security/audit log.
 
 ## 🟢 Improvements
+- 2026-09-30 — **Implemented: Integrate tab synchronized with README.** Added JS/TS downloads, separate channel keys/env, cached optional server setup with Next.js `after`, browser provider and independent analytics, a usable tracker tag from a pasted existing key, verification and troubleshooting. Generated examples have execution regressions; invalid/wrong-kind key text stays out of commands.
 - 2026-09-29 — **Implemented: reusable integration guide.** README now covers key placement,
   JS/TS vendoring, static public env reads, isolated request traces, serverless completion,
   independent analytics, verification and troubleshooting. Integrate-page examples also

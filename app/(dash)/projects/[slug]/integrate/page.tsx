@@ -6,7 +6,6 @@ import { requirePrincipalFromCookieStore } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getProjectBySlug } from "@/lib/projects";
 import { listApiKeys } from "@/lib/keyManagement";
-import { getEmbedSnippet } from "@/lib/tracker";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +50,7 @@ export default async function ProjectIntegratePage({
         <div>
           <h1 className="text-lg font-semibold">{project.name} · Integrate</h1>
           <p className="text-xs text-zinc-500">
-            Vendor the single-file SDK with your project key, then initialize it once.
+            Configure server logs, browser logs and analytics with separate project keys.
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
@@ -77,7 +76,6 @@ export default async function ProjectIntegratePage({
       <IntegratePanel
         origin={origin}
         projectSlug={project.slug}
-        analytics={getEmbedSnippet({ origin, slug: project.slug })}
       />
     </div>
   );
