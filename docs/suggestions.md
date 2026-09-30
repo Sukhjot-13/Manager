@@ -179,3 +179,7 @@ _(none open)_
 ## Implemented documentation update — 2026-09-30
 
 Required, feature-specific and optional environment settings are now listed in README against the current code, including standalone helpers and deployment/rebuild behavior. Fresh database setup and public/private Manager key separation are documented; obsolete provider/secret names are identified. No runtime configuration or credentials changed.
+
+## Implemented project-form fix — 2026-09-30
+
+The form offered automatic slugs when left blank, but its empty string failed the shared API schema and returned 400. Blank/whitespace project slugs now normalize to omitted, allowing automatic unique slugs on creation and preserving the existing slug on edit. Explicit malformed slugs remain rejected. Integration regressions exercise the actual route against isolated MongoDB.

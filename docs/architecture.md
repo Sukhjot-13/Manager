@@ -65,7 +65,7 @@ the client and analytics keys are deliberately public, kind-scoped ingest creden
 | `lib/auth.ts` | Request→principal resolution and route guards | `getPrincipal`, `getPrincipalFromCookieStore`, `requirePrincipal`, `requirePrincipalFromCookieStore`, `authorize`, `authorizeUserManagement`, `assertPermission`, `capabilitiesFor`, `errorResponse`, `HttpError`, `unauthorized`, `forbidden`, `notFound` |
 | `lib/authService.ts` | Login policy: env owner + bcrypt users, lockout counters | `attemptLogin`, `verifyPassword`, `lockoutRemainingMs`, `clearFailures`, `MAX_LOGIN_ATTEMPTS`, `LOCKOUT_MS`, type `LoginOutcome` |
 | `lib/users.ts` | User administration + audit log | `listUsers`, `getUserById`, `createUser`, `updateUser`, `serializeUser`, `countAdmins`, `recordAudit`, `listAuditEvents`, `principalFromUser`, `isProtectedPermission`, types `UserSummary`/`CreateUserInput`/`UpdateUserInput` |
-| `lib/validation.ts` | Shared Zod schemas + ingest limits | `slugSchema`, `linkSchema`, `projectCreateSchema`, `projectUpdateSchema`, `logEntrySchema`, `logIngestSchema`, `eventEntrySchema`, `eventIngestSchema`, `secretUpsertSchema`, `secretImportSchema`, `secretUpdateSchema`, `apiKeyCreateSchema`, `logQuerySchema`, `analyticsQuerySchema`, `userCreateSchema`, `userUpdateSchema`, `settingsUpdateSchema`, `loginSchema`, `MAX_META_BYTES`, `MAX_BODY_BYTES`, `MAX_LOG_BATCH`, `MAX_EVENT_BATCH`, `MAX_TS_AGE_MS`, `MAX_TS_FUTURE_MS` |
+| `lib/validation.ts` | Shared Zod schemas + ingest limits; private `normalizeOptionalProjectSlug(value)` treats blank project-form slugs as omitted without weakening explicit slug validation | `slugSchema`, `linkSchema`, `projectCreateSchema`, `projectUpdateSchema`, `logEntrySchema`, `logIngestSchema`, `eventEntrySchema`, `eventIngestSchema`, `secretUpsertSchema`, `secretImportSchema`, `secretUpdateSchema`, `apiKeyCreateSchema`, `logQuerySchema`, `analyticsQuerySchema`, `userCreateSchema`, `userUpdateSchema`, `settingsUpdateSchema`, `loginSchema`, `MAX_META_BYTES`, `MAX_BODY_BYTES`, `MAX_LOG_BATCH`, `MAX_EVENT_BATCH`, `MAX_TS_AGE_MS`, `MAX_TS_FUTURE_MS` |
 | `lib/db/connect.ts` | Cached mongoose connection (serverless-safe) | `connectToDatabase`, `mongooseInstance`, `isDatabaseConnected`, `disconnectFromDatabase` |
 | `lib/db/users.ts` | `users` model (role, rank, overrides, permissionManagement scope) | `UserModel`, type `UserDoc` |
 | `lib/db/projects.ts` | `projects` model (status/tags/links/notes/github cache/kill switches) | `ProjectModel`, `PROJECT_STATUSES`, `LINK_TYPES`, types `ProjectStatus`/`LinkType`/`ProjectDoc` |
@@ -105,7 +105,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/api/auth/login/route.ts` | `POST` | public | readiness-gated (503 + missing names when unconfigured), env/bcrypt login, generic errors, 429 + `Retry-After` on lockout, sets the session cookie |
 | `app/api/auth/logout/route.ts` | `POST` | public | clears the cookie (`Max-Age=0`) |
 | `app/api/auth/session` | — | session | answered inside `proxy.ts` (principal + capabilities) |
-| `app/api/projects/route.ts` | `GET`/`POST` | `projects.view` / `projects.create` | list with escaped search, create with unique slug |
+| `app/api/projects/route.ts` | `GET`/`POST` | `projects.view` / `projects.create` | list with escaped search, create with unique slug (including empty/whitespace form slugs) |
 | `app/api/projects/[slug]/route.ts` | `GET`/`PATCH`/`DELETE` | `projects.view` / `.edit` / `.delete` | delete cascades keys, secrets, logs, events, rollups, audits |
 | `app/api/projects/[slug]/github/route.ts` | `POST` | `projects.edit` | refreshes repo metadata, audits |
 | `app/api/projects/[slug]/secrets/route.ts` | `GET`/`POST` | `secrets.view` / `secrets.edit` | masked list, upsert, `.env` import (`mode:"import"`) |
@@ -202,7 +202,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `scripts/measure-log-delivery.mjs` (in consumer repos) | Measures requests-per-burst and client-side drop count |
 | `tests/unit/analytics.test.ts` | Visitor ids, bot table, ranges, rollup maths, origin check, tracker assertions |
 | `tests/integration/auth.test.ts` | Login policy, lockout, cookie flags, session bootstrap, proxy guard, fail-closed behaviour |
-| `tests/integration/projects.test.ts` | Projects CRUD, authorization, regex-injection, cascade, settings, users + delegation boundaries |
+| `tests/integration/projects.test.ts` | Projects CRUD, blank/whitespace auto-slug creation and uniqueness, invalid explicit slug rejection, blank-edit slug preservation, authorization, regex-injection, cascade, settings, users + delegation boundaries |
 | `tests/integration/secrets.test.ts` | Vault routes: masking, reveal + audit, export guards, rotation + resume |
 | `tests/integration/ingest.test.ts` | Log ingest hardening matrix + viewer/export/SDK download |
 | `tests/integration/analytics.test.ts` | Event ingest hardening, rollups, summary authz, tracker route |

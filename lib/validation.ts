@@ -27,9 +27,14 @@ export const linkSchema = z.object({
   label: z.string().max(80).default(""),
 });
 
+function normalizeOptionalProjectSlug(value: unknown): unknown {
+  return typeof value === "string" && value.trim() === "" ? undefined : value;
+}
+
 export const projectCreateSchema = z.object({
   name: z.string().min(1).max(80),
-  slug: slugSchema.optional(),
+  // The project form submits an empty string for its optional slug input.
+  slug: z.preprocess(normalizeOptionalProjectSlug, slugSchema.optional()),
   description: z.string().max(1000).default(""),
   status: z.enum(PROJECT_STATUSES).default("idea"),
   tags: z.array(z.string().max(30)).max(20).default([]),

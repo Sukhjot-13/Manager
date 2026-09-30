@@ -132,6 +132,38 @@ describe("projects CRUD", () => {
     expect((await second.json()).project.slug).toBe("dup-2");
   });
 
+  it.each(["", "   "])("auto-generates unique slugs for blank form input %j", async (slug) => {
+    for (const expected of ["resume-builder", "resume-builder-2"]) {
+      const response = await createProject(
+        requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "Resume Builder", slug })),
+      );
+      expect(response.status).toBe(201);
+      expect((await response.json()).project.slug).toBe(expected);
+    }
+    expect(await ProjectModel.countDocuments({})).toBe(2);
+  });
+
+  it.each(["ResumeBuilder", "resume builder", "resume_builder"])("rejects invalid explicit slug %j", async (slug) => {
+    const response = await createProject(
+      requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "Resume Builder", slug })),
+    );
+    expect(response.status).toBe(400);
+    expect(await ProjectModel.countDocuments({})).toBe(0);
+  });
+
+  it("keeps the existing slug when an edit submits a blank slug", async () => {
+    await createProject(requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "Keep Slug", slug: "keep-slug" })));
+    const response = await patchProject(
+      requestWithCookie(`${ORIGIN}/api/projects/keep-slug`, ownerCookie, {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug: "", status: "live" }),
+      }),
+      { params: Promise.resolve({ slug: "keep-slug" }) },
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).project).toMatchObject({ slug: "keep-slug", status: "live" });
+  });
+
   it("validates input with zod", async () => {
     const response = await createProject(
       requestWithCookie(`${ORIGIN}/api/projects`, ownerCookie, json({ name: "" })),
