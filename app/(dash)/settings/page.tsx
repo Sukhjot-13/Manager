@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { redirect } from "next/navigation";
 import { requirePrincipalFromCookieStore } from "@/lib/auth";
 import { can } from "@/lib/permissions";

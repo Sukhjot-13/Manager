@@ -1,6 +1,6 @@
 import mongoose, { Schema } from "mongoose";
 
-export const LOG_TTL_DAYS = 30;
+export { LOG_TTL_DAYS } from "@/lib/logRetention";
 export const EVENT_TTL_DAYS = 90;
 export const SECRET_AUDIT_TTL_DAYS = 180;
 export const RATE_LIMIT_WINDOW_SECONDS = 60;

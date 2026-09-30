@@ -4,7 +4,7 @@ One web app to manage every project: registry, centralized logging, an encrypted
 vault, GitHub links, and analytics. Single owner (plus optional extra users with roles),
 Next.js App Router, MongoDB Atlas, deployed on Vercel Hobby.
 
-> **Status: P0–P5 built.** 429 unit/integration tests + a 63-check production smoke test
+> **Status: P0–P5 built.** 433 unit/integration tests + a 63-check production smoke test
 > (`npm test`, `npm run test:e2e`).
 > Specification: [`docs/plan.md`](docs/plan.md) · inventory: [`docs/architecture.md`](docs/architecture.md)
 
@@ -454,3 +454,26 @@ docs/                   plan, architecture, suggestions, to-do
 `AGENTS.md` holds the working rules: keep `docs/architecture.md` current, log ideas and
 vulnerabilities in `docs/suggestions.md`, test every feature, keep one test runner
 (`npm test`), and one verification command (`npm run verify`).
+
+### Application log retention
+
+Manager stores application logs in MongoDB's **`logs`** collection and keeps them for **48 hours**, based on each record's `ts`. On a new database connection, Manager creates the TTL index or updates an existing longer TTL in place. Analytics events, rollups and security/vault audits keep their separate policies. MongoDB deletes expired records in a background sweep, so removal is not immediate at the exact second.
+
+If the application's database account cannot modify an existing TTL index, run this once in the **Manager database** using a MongoDB administrator account, then retry:
+
+```javascript
+db.runCommand({
+  collMod: "logs",
+  index: { keyPattern: { ts: 1 }, expireAfterSeconds: 172800 }
+});
+```
+
+For immediate manual cleanup of only expired logs:
+
+```javascript
+db.logs.deleteMany({ ts: { $lt: new Date(Date.now() - 48 * 60 * 60 * 1000) } });
+```
+
+Do not drop the collection: its indexes support the log viewer and automatic expiry.
+
+Navigation uses shared pending notices plus dashboard, project-section and settings loading screens. Sign out also shows progress and allows retry on failure.

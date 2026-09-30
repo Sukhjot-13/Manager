@@ -527,7 +527,7 @@ describe("ingest replay guard and duplicate collapsing", () => {
     ).toBe(true);
     expect(scoped.some(([spec]) => spec.fingerprint !== undefined)).toBe(true);
     expect(scoped.some(([spec]) => spec.ts !== undefined && spec._id !== undefined)).toBe(true);
-    expect(ttl?.[1]).toMatchObject({ expireAfterSeconds: 60 * 60 * 24 * 30 });
+    expect(ttl?.[1]).toMatchObject({ expireAfterSeconds: 60 * 60 * 24 * 2 });
   });
 
   it("caches counts briefly so live-tail polling does not rescan the collection", async () => {

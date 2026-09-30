@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { TrackerSnippet } from "@/components/analytics/tracker-snippet";
 import { Badge } from "@/components/ui/badge";
 import { requirePrincipalFromCookieStore } from "@/lib/auth";

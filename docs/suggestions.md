@@ -191,3 +191,8 @@ The form offered automatic slugs when left blank, but its empty string failed th
 Project create/edit failures now expose field paths and validation reasons instead of only an issue count. The form renders an accessible list with friendly field/link-row labels, distinguishes session/permission/conflict/server/network failures, and clears the saving state after failed requests. Missing/whitespace names and malformed JSON receive actionable feedback. The previous blanket “Slug already in use” for every server failure was misleading; actual conflicts now return 409. The edit collision query compared an ObjectId against a slug and ignored its result; unchanged slugs now save normally, and another project's slug is rejected. Changes remain local.
 
 Verification: 403/403 tests, lint and type checking passed. A production build with isolated synthetic configuration and 17/17 Chromium checks verified real UI login, simultaneous name/slug/link errors, corrected auto-slug creation, unchanged-slug editing, edit validation, and saving-state recovery for validation, simulated 500 and aborted network requests. The temporary database was destroyed and both server/browser stopped.
+
+## 2026-09-30 — Log retention and action feedback
+
+- Implemented requested 48-hour application log retention and route/link pending feedback. Existing TTL indexes require an in-place migration rather than merely changing the Mongoose schema.
+- Shared parent AGENTS.md feedback rules were added after Sukhjot refined the proposal: user-friendly, concise toasts; detailed, redacted logs. Repository-specific AGENTS.md files remain intact.

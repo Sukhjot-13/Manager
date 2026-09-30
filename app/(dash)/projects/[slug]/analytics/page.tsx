@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { ProjectAnalytics } from "@/components/analytics/project-analytics";
 import { Badge } from "@/components/ui/badge";
 import { requirePrincipalFromCookieStore } from "@/lib/auth";

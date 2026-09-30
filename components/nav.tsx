@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   Activity,
   BarChart3,
@@ -9,12 +10,14 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Loader2,
   Settings,
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/permission-gate";
 import { cn } from "@/lib/cn";
+import { useToast } from "@/components/ui/toast";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
@@ -27,11 +30,25 @@ const items = [
 export function Nav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { push } = useToast();
+  const [signingOut, setSigningOut] = useState(false);
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) {
+        push("Could not sign out. Please retry.", "error");
+        setSigningOut(false);
+        return;
+      }
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      push("Could not sign out. Check your connection and retry.", "error");
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -72,9 +89,9 @@ export function Nav() {
         </PermissionGate>
       ))}
       <div className="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-        <Button variant="ghost" size="sm" onClick={logout} className="w-full justify-start">
-          <LogOut size={15} />
-          Sign out
+        <Button variant="ghost" size="sm" onClick={logout} disabled={signingOut} aria-busy={signingOut} className="w-full justify-start">
+          {signingOut ? <Loader2 size={15} aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <LogOut size={15} />}
+          {signingOut ? "Signing out…" : "Sign out"}
         </Button>
       </div>
     </nav>

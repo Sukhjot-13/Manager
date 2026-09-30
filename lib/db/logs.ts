@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import { LOG_TTL_SECONDS } from "@/lib/logRetention";
 
 export const LOG_LEVELS = [
   "trace",
@@ -71,7 +72,7 @@ logSchema.index({ projectId: 1, level: 1, ts: -1 });
 // traceId lookups are always project-scoped ("Together" view), so the compound index
 // replaces what used to be a standalone index on traceId.
 logSchema.index({ projectId: 1, environment: 1, release: 1, ts: -1 });
-logSchema.index({ ts: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });
+logSchema.index({ ts: 1 }, { expireAfterSeconds: LOG_TTL_SECONDS });
 
 export type LogDoc = mongoose.InferSchemaType<typeof logSchema> & {
   _id: mongoose.Types.ObjectId;

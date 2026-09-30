@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { ensureLogRetention } from "@/lib/db/logRetention";
 
 type MongooseCache = {
   conn: typeof mongoose | null;
@@ -31,7 +32,11 @@ export async function connectToDatabase(
       maxPoolSize: 5,
       serverSelectionTimeoutMS: options.serverSelectionTimeoutMS ?? 5000,
     })
-    .then((m) => m)
+    .then(async (m) => {
+      if (m.connection.db === undefined) throw new Error("Database not connected");
+      await ensureLogRetention(m.connection.db);
+      return m;
+    })
     .catch((error: unknown) => {
       cache.promise = null;
       throw error;

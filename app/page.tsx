@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import type { Metadata } from "next";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
