@@ -59,6 +59,71 @@ If anything above is missing, the app tells you exactly what instead of failing 
 > without it every stored secret is unrecoverable. Rotating it is supported from
 > **Settings → Rotate master key** (crash-safe and resumable).
 
+## Environment variables
+
+Copy [`.env.example`](.env.example) to `.env.local` for local development. For a
+hosted deployment, set these in that Manager project's environment settings. Give
+Manager its own database and generate independent secrets; never commit real values.
+
+### Required for Manager
+
+| Variable | Purpose / value |
+|---|---|
+| `MONGODB_URI` | Connection string including Manager's database name, e.g. `manager`. |
+| `AUTH_SECRET` | Session-signing secret, at least 32 characters. Rotating it invalidates existing sessions. |
+| `ADMIN_EMAIL` | Owner's login email. First successful owner login creates/promotes the root admin. |
+| `ADMIN_PASSWORD` | Owner's login password. |
+| `ENV_MASTER_KEY` | Vault encryption key: exactly **64 hex characters**. Back it up; existing encrypted secrets require this key. Use Settings for rotation on an existing database. |
+| `VISITOR_PEPPER` | Random secret for anonymous analytics visitor IDs. Rotation changes visitor identity calculations. |
+
+### Optional app settings
+
+| Variable | Purpose / default |
+|---|---|
+| `GITHUB_TOKEN` | Read-only GitHub token for repository enrichment and higher API rate limits. |
+| `APP_TZ` | Dashboard display timezone; defaults to `UTC`, e.g. `America/Toronto`. |
+
+Manager uses password login and needs no email-provider or AI-provider credentials.
+The `MANAGER_*` / `NEXT_PUBLIC_MANAGER_*` block under **Wiring your projects in**
+belongs to the consuming sites; create separate project keys for Finance and Resume Builder.
+
+### Local helpers and administration scripts (not required for hosting)
+
+| Variable | Used by / purpose |
+|---|---|
+| `CREATE_USER_EMAIL` | `npm run create-user`: target account email; prompted when interactive. |
+| `CREATE_USER_NAME` | `npm run create-user`: display name (may be empty when prompted). |
+| `CREATE_USER_PASSWORD` | `npm run create-user`: password, at least 10 characters; prompted when interactive. |
+| `CREATE_USER_ROLE` | `npm run create-user`: `admin`, `developer` or `user`; prompted when interactive. |
+| `MANAGER_LOCAL_MONGO_PORT` | Local MongoDB launcher; defaults to `27099`. |
+| `MANAGER_ALLOW_LOCAL_DB` | `1` explicitly permits the production-mode local database helper; `npm run start:local-db` sets it. Never a hosted database option. |
+| `PORT` | `start:local-db` web port; defaults to `3000`. |
+| `MANAGER_PUBLIC_ORIGIN` | Project provisioning: public Manager origin written into generated integration configuration. |
+| `MANAGER_ENDPOINT` | Provisioning fallback origin (default `http://127.0.0.1:3000`); also benchmark target (default `http://127.0.0.1:3300`). |
+| `MANAGER_LOG_KEY` | `scripts/bench-ingest.mjs`: synthetic test project's `mlk_` server key. |
+| `MANAGER_APP_ID` | Benchmark SDK context; defaults to `resume-builder`. |
+
+`NODE_ENV`, `VERCEL` and `VERCEL_ENV` are framework/platform-managed. The local helper
+sets `MANAGER_DATABASE_KIND=local` internally; readiness still derives database kind
+from the connection string. These are not additional secrets to provision.
+
+Example app configuration (placeholders only):
+
+```dotenv
+MONGODB_URI=mongodb+srv://USER:PASSWORD@CLUSTER/manager?retryWrites=true&w=majority
+AUTH_SECRET=REPLACE_WITH_RANDOM_SECRET
+ADMIN_EMAIL=owner@example.com
+ADMIN_PASSWORD=REPLACE_WITH_OWNER_PASSWORD
+ENV_MASTER_KEY=REPLACE_WITH_64_HEX_CHARACTERS
+VISITOR_PEPPER=REPLACE_WITH_ANOTHER_RANDOM_SECRET
+# GITHUB_TOKEN=
+# APP_TZ=America/Toronto
+```
+
+After changing server configuration, restart locally or redeploy. On a fresh Manager
+database, sign in as the owner, create each site's project, then generate its server,
+client and analytics keys. Old keys from another Manager database do not authenticate.
+
 ## Scripts
 
 | Command | What it does |

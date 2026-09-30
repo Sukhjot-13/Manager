@@ -20,6 +20,19 @@
 | `NODE_ENV` | Framework-managed; selects the dev-vs-production CSP in `lib/csp.ts` | `proxy.ts` |
 | `CREATE_USER_EMAIL` / `CREATE_USER_NAME` / `CREATE_USER_PASSWORD` / `CREATE_USER_ROLE` | Inputs for `scripts/create-user.ts` — never hardcoded in the file | `scripts/create-user.ts` |
 
+Additional helper/platform variables (not hosted app requirements):
+
+| Var | Purpose | Referenced in |
+|---|---|---|
+| `MANAGER_LOCAL_MONGO_PORT` | Local MongoDB port, default 27099 | `scripts/dev-local-db.mjs` |
+| `MANAGER_ALLOW_LOCAL_DB` | Explicit production-mode local-helper opt-in | `scripts/dev-local-db.mjs`, `package.json` |
+| `PORT` | Local helper's production web port, default 3000 | `scripts/dev-local-db.mjs` |
+| `MANAGER_DATABASE_KIND` | Launcher-injected label; readiness derives actual kind from URI | `scripts/dev-local-db.mjs` |
+| `MANAGER_PUBLIC_ORIGIN` | Public origin in generated consuming-app configuration | `scripts/provision-projects.ts` |
+| `MANAGER_ENDPOINT` | Provisioning fallback origin / benchmark target | `scripts/provision-projects.ts`, `scripts/bench-ingest.mjs` |
+| `MANAGER_LOG_KEY` / `MANAGER_APP_ID` | Benchmark synthetic server credential and context | `scripts/bench-ingest.mjs` |
+| `VERCEL` / `VERCEL_ENV` | Platform values; local helper refuses Vercel execution | `scripts/dev-local-db.mjs` |
+
 `.env*` is git-ignored (`.env.example` is the only tracked env file; no `.env` exists in git history).
 
 ### Consuming-app configuration (README examples)
@@ -35,7 +48,7 @@ the client and analytics keys are deliberately public, kind-scoped ingest creden
 
 | File | Purpose | Functions |
 |---|---|---|
-| `README.md` | Setup, key matrix, JS/TS SDK download, server/browser separation, request-completion delivery, analytics, raw HTTP, end-to-end verification and troubleshooting. Examples reflect the current ingest contract. | Embedded examples: `getManagerLogger` caches optional server initialization; `withManagerLogs` isolates request traces, logs uncaught exceptions and schedules `after` flushing; wrapped `GET` demonstrates route usage; `ManagerProvider` initializes browser capture once and installs analytics independently. |
+| `README.md` | Setup, complete required/optional app and local-script environment tables, fresh-database/project setup, key matrix, JS/TS SDK download, server/browser separation, request-completion delivery, analytics, raw HTTP, end-to-end verification and troubleshooting. Examples reflect the current ingest contract. | Embedded examples: `getManagerLogger` caches optional server initialization; `withManagerLogs` isolates request traces, logs uncaught exceptions and schedules `after` flushing; wrapped `GET` demonstrates route usage; `ManagerProvider` initializes browser capture once and installs analytics independently. |
 | `docs/architecture.md` | Maintained file/function and environment inventory. | None (documentation). |
 | `docs/suggestions.md` | Dated improvements, findings and resolutions. | None (documentation). |
 
@@ -212,3 +225,5 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 - **Vault** — AES-256-GCM with a fresh 12-byte IV per write, `keyVer` per row, masked listings, single-value reveal with 30 s client re-mask, audited reveal/copy/export, password + type-to-confirm on export, resumable key rotation.
 - **Caching** — `no-store` on every authenticated response; exports capped at 10k rows; CSV cells that could be interpreted as formulas are prefixed with `'`.
 - **Dependency floor** — minimal, deliberately chosen deps; `npm audit` clean; the SDK ships zero dependencies.
+
+Documentation synchronization (2026-09-30): `README.md` and the Environment Variables inventory describe the current required/optional configuration and tools. `docs/suggestions.md` records the completed documentation update; no executable functions or runtime behavior changed.

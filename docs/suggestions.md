@@ -175,3 +175,7 @@ _(none open)_
 - Trace timelines displayed newest-first with negative elapsed gaps. The combined journey now displays chronological rows; feed ordering and pagination remain unchanged.
 - Both lint warnings were removed without introducing a runtime mongoose import into client code.
 - Repeated SDK errors disappeared after a flush, and ingest merged matching errors across traces/sources. Repetition is now restricted to queued same-trace entries; ingestion preserves separate journey/source rows and counts bounded SDK repetition hints.
+
+## Implemented documentation update — 2026-09-30
+
+Required, feature-specific and optional environment settings are now listed in README against the current code, including standalone helpers and deployment/rebuild behavior. Fresh database setup and public/private Manager key separation are documented; obsolete provider/secret names are identified. No runtime configuration or credentials changed.
