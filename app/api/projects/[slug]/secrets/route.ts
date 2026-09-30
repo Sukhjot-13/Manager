@@ -10,6 +10,7 @@ import {
   upsertSecret,
 } from "@/lib/secrets";
 import { clientIp } from "@/lib/visitor";
+import { MAX_IMPORT_BYTES } from "@/lib/envImport";
 
 type Context = { params: Promise<{ slug: string }> };
 
@@ -28,7 +29,10 @@ const secretUpsertInputSchema = z.object({
 
 const secretImportInputSchema = z.object({
   environment: z.enum(ENVIRONMENTS),
-  content: z.string().min(1).max(200_000),
+  content: z.string().min(1).max(MAX_IMPORT_BYTES).refine(
+    (content) => new TextEncoder().encode(content).byteLength <= MAX_IMPORT_BYTES,
+    "import payload too large",
+  ),
 });
 
 function invalidRequest(issues?: number): Response {

@@ -55,7 +55,7 @@ describe("parseEnvFile", () => {
 
   it("strips surrounding single and double quotes", () => {
     const parsed = parseEnvFile(
-      ['DOUBLE="hello world"', "SINGLE='raw $value'", 'INNER="say "hi" now"'].join(
+      ['DOUBLE="hello world"', "SINGLE='raw $value'", String.raw`INNER="say \"hi\" now"`].join(
         "\n",
       ),
     );

@@ -21,8 +21,8 @@ import { POST as exportPost } from "@/app/api/projects/[slug]/secrets/export/rou
 import { GET as auditGet } from "@/app/api/projects/[slug]/secrets/audit/route";
 import { proxy } from "@/proxy";
 import { SecretAuditModel, SecretModel } from "@/lib/db/secrets";
-import { encrypt, randomHex } from "@/lib/crypto";
-import { rotateMasterKey } from "@/lib/secrets";
+import { decrypt, encrypt, randomHex } from "@/lib/crypto";
+import { exportEnv, importEnvFile, rotateMasterKey } from "@/lib/secrets";
 
 type Cookie = { name: string; value: string };
 
@@ -354,6 +354,39 @@ describe("secret writes", () => {
     const audit = await SecretAuditModel.find({ action: "import" }).lean();
     expect(audit).toHaveLength(1);
     expect(audit[0]?.environment).toBe("staging");
+  });
+
+  it("stores quoted pasted keys exactly and round-trips vault export escaping", async () => {
+    const expected = [
+      { key: "API_KEY", value: '  abc==#$LITERAL "quoted"\\path  ' },
+      { key: "CERT", value: "first\nsecond\rthird" },
+      { key: "URL", value: "https://example.test/?a=1&b=2" },
+    ];
+    const content = String.raw`API_KEY="  abc==#$LITERAL \"quoted\"\\path  " # comment
+CERT="first\nsecond\rthird"
+URL=https://example.test/?a=1&b=2 # note`;
+    const response = await upsertViaApi(ownerCookie, {
+      mode: "import", environment: "staging", content,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ imported: 3, skipped: 0, errors: [] });
+    async function values(environment: string) {
+      const rows = await SecretModel.find({ projectId, environment }).sort({ key: 1 }).lean();
+      return rows.map((row) => ({ key: row.key, value: decrypt({ ...row, keyVer: row.keyVer ?? 1 }) }));
+    }
+    expect(await values("staging")).toEqual(expected);
+    const exported = await exportEnv(projectId, "staging", OWNER_EMAIL, "127.0.0.1");
+    if (exported === null) throw new Error("expected a readable export");
+    expect(await importEnvFile(projectId, "dev", exported)).toEqual({ imported: 3, skipped: 0, errors: [] });
+    expect(await values("dev")).toEqual(expected);
+  });
+
+  it("rejects imports over the UTF-8 byte limit before writing any keys", async () => {
+    const response = await upsertViaApi(ownerCookie, {
+      mode: "import", environment: "dev", content: `A=${"é".repeat(100_000)}`,
+    });
+    expect(response.status).toBe(400);
+    expect(await SecretModel.countDocuments()).toBe(0);
   });
 
   it("updates and deletes a secret, auditing both actions", async () => {

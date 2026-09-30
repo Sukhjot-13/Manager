@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
   Download,
@@ -12,6 +12,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { parseEnvFile, readEnvImportFile } from "@/lib/envImport";
 import { PermissionGate } from "@/components/permission-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,6 +99,39 @@ export function SecretsPanel({
   const [importOpen, setImportOpen] = useState(false);
   const [importEnvironment, setImportEnvironment] = useState<EnvironmentName>("dev");
   const [importContent, setImportContent] = useState("");
+  const [importFileError, setImportFileError] = useState("");
+  const [importFileLoading, setImportFileLoading] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importDragActive, setImportDragActive] = useState(false);
+  const importReadVersion = useRef(0);
+  const importPreview = useMemo(() => parseEnvFile(importContent), [importContent]);
+  const importReady = !importBusy && !importFileLoading && !importFileError &&
+    importPreview.entries.length > 0 && importPreview.errors.length === 0;
+
+  function closeImport() {
+    importReadVersion.current += 1;
+    setImportOpen(false);
+    setImportContent("");
+    setImportFileError("");
+    setImportFileLoading(false);
+    setImportDragActive(false);
+  }
+
+  async function loadImportFile(files: File[]) {
+    const version = ++importReadVersion.current;
+    setImportFileLoading(true);
+    setImportFileError("");
+    try {
+      const content = await readEnvImportFile(files);
+      if (version === importReadVersion.current) setImportContent(content);
+    } catch (error) {
+      if (version === importReadVersion.current) {
+        setImportFileError(error instanceof Error ? error.message : "Could not read the .env file.");
+      }
+    } finally {
+      if (version === importReadVersion.current) setImportFileLoading(false);
+    }
+  }
   const [exportOpen, setExportOpen] = useState(false);
   const [exportEnvironment, setExportEnvironment] = useState<EnvironmentName>("dev");
   const [exportConfirm, setExportConfirm] = useState("");
@@ -306,7 +340,9 @@ export function SecretsPanel({
     }
   }, [deleting, environment, push, refresh]);
 
-  const runImport = useCallback(async (): Promise<void> => {
+  async function runImport(): Promise<void> {
+    if (!importReady) return;
+    setImportBusy(true);
     try {
       const response = await fetch(base, {
         method: "POST",
@@ -331,15 +367,17 @@ export function SecretsPanel({
         `imported ${result.imported}, skipped ${result.skipped}${
           result.errors.length > 0 ? `, ${result.errors.length} problem lines` : ""
         }`,
-        result.errors.length > 0 ? "error" : "success",
+        result.errors.length > 0 || result.skipped > 0 ? "error" : "success",
       );
-      setImportOpen(false);
-      setImportContent("");
+      if (result.errors.length > 0 || result.skipped > 0) return;
+      closeImport();
       await refresh(environment);
     } catch {
       push("import failed", "error");
+    } finally {
+      setImportBusy(false);
     }
-  }, [base, environment, importContent, importEnvironment, push, refresh]);
+  }
 
   const runExport = useCallback(async (): Promise<void> => {
     if (exportConfirm !== "EXPORT") {
@@ -751,14 +789,16 @@ export function SecretsPanel({
       <Dialog
         open={importOpen}
         title="Import .env"
-        description="Paste KEY=value lines. Existing keys are overwritten."
-        onClose={() => setImportOpen(false)}
+        description='Drop a .env file or paste multiple KEY="value" lines. Existing keys are overwritten.'
+        onClose={() => { if (!importBusy) closeImport(); }}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setImportOpen(false)}>
+            <Button variant="ghost" disabled={importBusy} onClick={closeImport}>
               Cancel
             </Button>
-            <Button onClick={() => void runImport()}>Import</Button>
+            <Button disabled={!importReady} onClick={() => void runImport()}>
+              {importBusy ? "Importing…" : "Import"}
+            </Button>
           </>
         }
       >
@@ -766,6 +806,7 @@ export function SecretsPanel({
           <Field label="Environment" htmlFor="import-environment">
             <Select
               id="import-environment"
+              disabled={importBusy}
               value={importEnvironment}
               onChange={(event) =>
                 setImportEnvironment(event.target.value as EnvironmentName)
@@ -778,15 +819,73 @@ export function SecretsPanel({
               ))}
             </Select>
           </Field>
-          <Field label="Contents" htmlFor="import-content">
+          <div
+            className={`rounded-lg border-2 border-dashed p-4 text-center ${importDragActive ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-zinc-300 dark:border-zinc-700"}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              if (!importBusy) setImportDragActive(true);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setImportDragActive(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setImportDragActive(false);
+              if (!importBusy) void loadImportFile(Array.from(event.dataTransfer.files));
+            }}
+          >
+            <Upload size={20} className="mx-auto mb-2 text-zinc-500" />
+            <Field label="Drop one .env file here, or choose a file" htmlFor="import-file">
+              <Input
+                id="import-file"
+                type="file"
+                accept=".env"
+                disabled={importBusy || importFileLoading}
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  event.target.value = "";
+                  if (files.length) void loadImportFile(files);
+                }}
+              />
+            </Field>
+            <p className="mt-2 text-xs text-zinc-500">.env files only · UTF-8 text · up to 200 KB</p>
+          </div>
+          {importFileError ? <p role="alert" className="text-xs text-red-600 dark:text-red-400">{importFileError}</p> : null}
+          {importFileLoading ? <p role="status" className="text-xs text-zinc-500">Reading .env file…</p> : null}
+          <Field label="Or paste .env contents" htmlFor="import-content">
             <Textarea
               id="import-content"
               className="min-h-48 font-mono text-xs"
               value={importContent}
-              onChange={(event) => setImportContent(event.target.value)}
-              placeholder={"DATABASE_URL=postgres://\nexport SECRET=abc\n# comment"}
+              disabled={importBusy}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => {
+                importReadVersion.current += 1;
+                setImportFileLoading(false);
+                setImportFileError("");
+                setImportContent(event.target.value);
+              }}
+              placeholder={'VAR_NAME="Value"\nAPI_KEY="value=with#symbols"\n# comment'}
             />
           </Field>
+          {importContent ? (
+            <div className="space-y-2 text-xs" aria-live="polite">
+              <p>{importPreview.entries.length} keys parsed. Values will be stored without surrounding quotes.</p>
+              <p className="max-h-20 overflow-y-auto break-all font-mono text-zinc-500">
+                {importPreview.entries.map((entry) => entry.key).join(", ")}
+              </p>
+              {importPreview.errors.length > 0 ? (
+                <div role="alert" className="text-red-600 dark:text-red-400">
+                  <p>Fix these lines before importing:</p>
+                  <ul className="mt-1 max-h-28 list-inside list-disc overflow-y-auto">
+                    {importPreview.errors.map((error, index) => <li key={index}>{error}</li>)}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </Dialog>
 

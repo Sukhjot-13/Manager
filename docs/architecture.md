@@ -84,7 +84,8 @@ the client and analytics keys are deliberately public, kind-scoped ingest creden
 | `lib/ingest.ts` | Log ingest + viewer query engine | `ingestLogs`, `queryLogs`, `groupLogs`, `countLogs`, `logFacets`, `prepareEntry`, `buildLogFilter`, `parseIngestTs`, `hasForbiddenFields`, `cleanText`, `metaSize`, `escapeRegex`, `encodeCursor`, `decodeCursor`, `serializeLog`, `resolveLimit`, `objectIdOrNull`, `IngestError`, consts `INGEST_LIMITS`/`SERVER_DERIVED_FIELDS`/`NODE_RUNTIME_FIELDS`/`MAX_EXPORT_ROWS`/`MAX_QUERY_LIMIT` |
 | `lib/analytics.ts` | Event ingest, rollup reads and analytics summaries | `ingestEvents`, `analyticsSummary`, `projectTotals`, `exportEvents`, `prepareEvent`, `hasForbiddenEventFields`, `originCheck`, `hostsFromLinks`, `resolveRange`, `mergeCountMaps`, `rankCounts`, `pickByPrefix`, `alignSeries`, `sumSeries`, `combineSeries`, `rollupKeySafe`, `cleanCountry`, `cleanUtm`, `serializeEvent`, consts `ANALYTICS_LIMITS`/`ACTIVE_WINDOW_MS`/`UTM_FIELDS`/`EVENT_SERVER_DERIVED_FIELDS`/`EVENT_EXPORT_COLUMNS` |
 | `lib/rollup.ts` | Daily rollup writer/reader (UTC buckets, cardinality cap) | `rollupDay`, `readRollups`, `rangeDates`, `ensureCurrentDayRollup`, type `DailyRollup` |
-| `lib/secrets.ts` | Vault service: masking, CRUD, `.env` import/export, audit, key rotation | `parseEnvFile`, `listSecrets`, `upsertSecret`, `updateSecret`, `deleteSecret`, `importEnvFile`, `logSecretAction`, `revealSecret`, `exportEnv`, `auditTrail`, `rotateMasterKey`, `CURRENT_KEY_VER`, types `MaskedSecret`/`RevealedSecret`/`ImportResult`/`RotationResult`/`SecretAuditRow` |
+| `lib/envImport.ts` | Browser-safe shared `.env` parser and file loader; validates one `.env` file, UTF-8 text and 200 KB byte limit | `parseEnvFile` (quotes, multiline values, escaped double quotes/backslashes/newlines, comments, exports, BOM/CRLF, duplicate/key/value validation; no interpolation), `readEnvImportFile`, `MAX_IMPORT_BYTES`, types `EnvEntry`/`ParsedEnvFile` |
+| `lib/secrets.ts` | Vault service: masking, CRUD, `.env` import/export, audit, key rotation | `parseEnvFile` (re-export of shared parser), `formatEnvValue` (export escaping), `listSecrets`, `upsertSecret`, `updateSecret`, `deleteSecret`, `importEnvFile`, `logSecretAction`, `revealSecret`, `exportEnv`, `auditTrail`, `rotateMasterKey`, `CURRENT_KEY_VER`, types `MaskedSecret`/`RevealedSecret`/`ImportResult`/`RotationResult`/`SecretAuditRow` |
 | `lib/settings.ts` | Global ingest kill switches and batch caps | `getSettings`, `updateSettings`, `DEFAULT_SETTINGS`, type `AppSettings` |
 | `lib/ratelimit.ts` | In-memory token bucket + durable Mongo counters | `consumeMemory`, `consumeDurable`, `enforceRateLimit`, `resetMemoryBuckets`, `bucketSnapshot`, type `RateVerdict` |
 | `lib/visitor.ts` | Visitor ids, bot filtering, IP/country derivation, UTC day maths | `visitorId`, `isBot`, `clientIp`, `countryFromHeaders`, `utcDateKey`, `dailyWindowStart`, `addDays` |
@@ -110,7 +111,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `app/api/projects/route.ts` | `GET`/`POST` | `projects.view` / `projects.create` | list with escaped search, create with unique slug (including empty/whitespace form slugs); authenticated validation failures expose field paths/reasons, malformed JSON gets `invalid_json`, slug conflicts get 409 |
 | `app/api/projects/[slug]/route.ts` | `GET`/`PATCH`/`DELETE` | `projects.view` / `.edit` / `.delete` | edit returns field-specific validation/JSON/409 conflict feedback; delete cascades keys, secrets, logs, events, rollups, audits |
 | `app/api/projects/[slug]/github/route.ts` | `POST` | `projects.edit` | refreshes repo metadata, audits |
-| `app/api/projects/[slug]/secrets/route.ts` | `GET`/`POST` | `secrets.view` / `secrets.edit` | masked list, upsert, `.env` import (`mode:"import"`) |
+| `app/api/projects/[slug]/secrets/route.ts` | `GET`/`POST` | `secrets.view` / `secrets.edit` | masked list, upsert, `.env` import (`mode:"import"`); import content limited to 200 KB UTF-8 bytes |
 | `app/api/projects/[slug]/secrets/export/route.ts` | `POST` | `secrets.export` (root admin) | type-to-confirm + password re-entry, audits, `no-store` download |
 | `app/api/projects/[slug]/secrets/audit/route.ts` | `GET` | `secrets.view` | recent reveal/copy/export/import rows |
 | `app/api/secrets/[id]/route.ts` | `PATCH`/`DELETE` | `secrets.edit` | audits |
@@ -148,7 +149,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `components/projects/project-form.tsx` | Create/edit dialog (slug, links, notes, repo), accessible validation error list with visible link-row numbers; distinct auth/conflict/server/network messages, always resets pending state | `ProjectForm`, nested `submit`, `Label2` |
 | `components/projects/project-header.tsx` | Emoji/status/tags/GitHub stats + refresh | `ProjectHeader` |
 | `components/projects/project-tabs.tsx` | Permission-filtered tabs | `ProjectTabs` |
-| `app/(dash)/projects/[slug]/env/page.tsx` + `components/secrets/secrets-panel.tsx` | Vault: env selector, masked values, 30 s reveal, copy, import/export dialogs, audit list | `SecretsPanel` |
+| `app/(dash)/projects/[slug]/env/page.tsx` + `components/secrets/secrets-panel.tsx` | Vault: env selector, masked values, 30 s reveal, copy, import/export dialogs, audit list; `.env` drop/file picker or multiline paste, shared key-only preview/errors, blocks invalid imports, clears canceled content and ignores stale file reads | `SecretsPanel`, `errorMessage`, `closeImport`, `loadImportFile`, `runImport` |
 | `app/(dash)/projects/[slug]/keys/page.tsx` + `components/logs/keys-panel.tsx` | Key list, create-once display, revoke | `KeysPanel` |
 | `app/(dash)/settings/keys/page.tsx` | Cross-project key list; passes the real project list to `KeysPanel` so a project with no keys is still selectable | `SettingsKeysPage` |
 | `app/(dash)/projects/[slug]/logs/page.tsx` + `components/logs/log-viewer.tsx` | All/Server/Client tabs, filters, trace view, error grouping, live tail, detail drawer, exports. Trace rows use memoized `chronologicalLogs` for oldest-first journeys and nonnegative gaps; ordinary log feeds and API cursors keep newest-first ordering. | `LogViewer` |
@@ -198,6 +199,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/unit/key-form.test.ts` | The create-key form's rules: a project is always named on the cross-project screen, an empty project list is refused rather than sent, blank ids and names are rejected |
 | `tests/integration/readiness.test.ts` | Unconfigured deployment: missing-var detection, actionable 503 login (never a bare 500), no session cookie, unreachable-DB path, configured path still works |
 | `tests/unit/page-rendering.test.ts` | Landing page must stay `force-dynamic` (nonce cannot be injected into static HTML) |
+| `tests/unit/envImport.test.ts` | Shared import regressions: quoted symbols/whitespace, escapes, multiline, malformed/duplicate/oversized input, UTF-8 byte limits and single `.env` file selection/read failures |
 | `tests/unit/secrets.test.ts` | `.env` parsing, crypto round-trip/tamper/fresh-IV, masking, permission map |
 | `tests/unit/ingest.test.ts` | Regex escaping, timestamp guards, caps, fingerprinting, redaction, CSV, SDK internals (incl. null console capture, opt-in process listeners, distinct metadata error stacks, serialized stack redaction/caps and child bindings) |
 | `scripts/bench-ingest.mjs` | Ingest benchmark: bulk-insert path, in-batch dedupe, worst-case distinct-fingerprint path |
@@ -206,7 +208,7 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 | `tests/integration/auth.test.ts` | Login policy, lockout, cookie flags, session bootstrap, proxy guard, fail-closed behaviour |
 | `tests/unit/project-form.test.ts` | Browser-safe error feedback: nested paths/visible rows, validation-only serialization, malformed responses, auth/conflict/server fallbacks |
 | `tests/integration/projects.test.ts` | Projects CRUD, create/edit actionable validation feedback, malformed JSON, missing/whitespace names, unchanged/renamed/conflicting slugs, validation authorization boundaries, blank/whitespace auto-slug creation and uniqueness, invalid explicit slug rejection, blank-edit slug preservation, authorization, regex-injection, cascade, settings, users + delegation boundaries |
-| `tests/integration/secrets.test.ts` | Vault routes: masking, reveal + audit, export guards, rotation + resume |
+| `tests/integration/secrets.test.ts` | Vault routes: masking, reveal + audit, export guards, rotation + resume; quoted import value preservation/export-import round trips and UTF-8 byte limits |
 | `tests/integration/ingest.test.ts` | Log ingest hardening matrix + viewer/export/SDK download |
 | `tests/integration/analytics.test.ts` | Event ingest hardening, rollups, summary authz, tracker route |
 | `tests/integration/tracker-route.test.ts` | `/t.js` public path, immutable cache, ETag/304, masked embed snippet |
@@ -230,3 +232,9 @@ All authenticated responses send `Cache-Control: no-store`; public routes are ma
 - **Dependency floor** — minimal, deliberately chosen deps; `npm audit` clean; the SDK ships zero dependencies.
 
 Documentation synchronization (2026-09-30): `README.md` and the Environment Variables inventory describe the current required/optional configuration and tools. `docs/suggestions.md` records the completed documentation update; no executable functions or runtime behavior changed.
+
+### Env import verification — 2026-09-30
+
+The shared parser powers both the import preview and server storage. Imports accept one UTF-8 `.env` file (drop or picker) or multiple pasted assignments; the preview lists key names and blocks imports until malformed/duplicate/empty/oversized values are fixed. Double quotes support escaped quotes, backslashes, newline/carriage-return escapes; single quotes/backticks are literal. Quoted `#`, `=`, whitespace and multiline content survive; unquoted comments are removed. No variable expansion or shell evaluation occurs. Existing keys in the chosen environment are overwritten.
+
+Verification: `npm run verify` covers lint, TypeScript, all 414 unit/integration tests and the production build. Agent-browser exercised the production bundle against a disposable MongoDB with synthetic credentials: multiline paste and file imports persisted exact values, dropped files populated the same preview, other extensions and malformed quotes blocked import, reopen cleared content, and browser error/console checks were empty. No live secrets were imported.

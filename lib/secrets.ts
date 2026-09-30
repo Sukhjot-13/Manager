@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { MAX_IMPORT_BYTES, parseEnvFile } from "@/lib/envImport";
 import { connectToDatabase } from "@/lib/db/connect";
 import { SecretAuditModel, SecretModel, type Environment } from "@/lib/db/secrets";
 import {
@@ -12,9 +13,9 @@ import {
 export const CURRENT_KEY_VER = 1;
 export const MAX_AUDIT_LIMIT = 200;
 export const DEFAULT_AUDIT_LIMIT = 50;
-export const MAX_IMPORT_BYTES = 200_000;
+export { MAX_IMPORT_BYTES, parseEnvFile } from "@/lib/envImport";
+export type { EnvEntry, ParsedEnvFile } from "@/lib/envImport";
 
-const KEY_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UNREADABLE_MASK = "••••";
 
 export type SecretRow = {
@@ -67,10 +68,6 @@ export type RemovedSecret = {
   environment: Environment;
   key: string;
 };
-
-export type EnvEntry = { key: string; value: string };
-
-export type ParsedEnvFile = { entries: EnvEntry[]; errors: string[] };
 
 export type ImportResult = {
   imported: number;
@@ -141,18 +138,6 @@ function isoOrNull(value: Date | null | undefined): string | null {
   return value instanceof Date ? value.toISOString() : null;
 }
 
-function stripSurroundingQuotes(value: string): string {
-  if (value.length < 2) {
-    return value;
-  }
-  const first = value.charAt(0);
-  const last = value.charAt(value.length - 1);
-  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-
 function formatEnvValue(value: string): string {
   if (value === "") {
     return '""';
@@ -188,45 +173,6 @@ function toMasked(row: SecretRow): MaskedSecret {
 
 function toUpdated(row: SecretRow): UpdatedSecret {
   return { ...toMasked(row), projectId: String(row.projectId) };
-}
-
-export function parseEnvFile(content: string): ParsedEnvFile {
-  const entries: EnvEntry[] = [];
-  const errors: string[] = [];
-  const seen = new Set<string>();
-  const lines = content.split(/\r?\n/);
-  lines.forEach((rawLine, index) => {
-    const lineNumber = index + 1;
-    let line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) {
-      return;
-    }
-    if (/^export\s+/.test(line)) {
-      line = line.replace(/^export\s+/, "").trim();
-    }
-    const separator = line.indexOf("=");
-    if (separator < 0) {
-      errors.push(`line ${lineNumber}: expected KEY=value`);
-      return;
-    }
-    const key = line.slice(0, separator).trim();
-    const rawValue = line.slice(separator + 1).trim();
-    if (!KEY_NAME_PATTERN.test(key)) {
-      errors.push(`line ${lineNumber}: invalid key name`);
-      return;
-    }
-    if (rawValue === "") {
-      errors.push(`line ${lineNumber}: empty value for ${key}`);
-      return;
-    }
-    if (seen.has(key)) {
-      errors.push(`line ${lineNumber}: duplicate key ${key} skipped`);
-      return;
-    }
-    seen.add(key);
-    entries.push({ key, value: stripSurroundingQuotes(rawValue) });
-  });
-  return { entries, errors };
 }
 
 export async function listSecrets(
@@ -327,7 +273,7 @@ export async function importEnvFile(
   environment: Environment,
   content: string,
 ): Promise<ImportResult> {
-  if (content.length > MAX_IMPORT_BYTES) {
+  if (new TextEncoder().encode(content).byteLength > MAX_IMPORT_BYTES) {
     throw new Error("import payload too large");
   }
   requireObjectId(projectId, "projectId");
